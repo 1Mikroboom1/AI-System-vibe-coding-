@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --app-bg: #f8fafc;
+    --app-surface: rgba(255, 255, 255, 0.78);
+    --app-surface-strong: #ffffff;
+    --app-text: #0f172a;
+    --app-muted: #475569;
+    --app-border: rgba(148, 163, 184, 0.24);
+    --app-primary: #2563eb;
+    --app-secondary: #38bdf8;
+    --app-shell-shadow: rgba(15, 23, 42, 0.08);
+  }
+
+  html.dark {
+    --app-bg: #020617;
+    --app-surface: rgba(15, 23, 42, 0.82);
+    --app-surface-strong: #0f172a;
+    --app-text: #e2e8f0;
+    --app-muted: #94a3b8;
+    --app-border: rgba(148, 163, 184, 0.18);
+    --app-shell-shadow: rgba(2, 6, 23, 0.42);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background:
+      radial-gradient(circle at top left, color-mix(in srgb, var(--app-primary) 28%, transparent), transparent 34%),
+      radial-gradient(circle at top right, color-mix(in srgb, var(--app-secondary) 24%, transparent), transparent 28%),
+      linear-gradient(180deg, var(--app-bg), var(--app-bg));
+    color: var(--app-text);
+    transition: background 300ms ease, color 300ms ease;
+  }
+}
+
+@layer components {
+  .app-shell {
+    background: linear-gradient(180deg, var(--app-bg), var(--app-bg));
+  }
+
+  .app-panel {
+    background: var(--app-surface);
+    border: 1px solid var(--app-border);
+    box-shadow: 0 24px 60px var(--app-shell-shadow);
+    backdrop-filter: blur(18px);
+    transition: background 300ms ease, border-color 300ms ease, box-shadow 300ms ease, color 300ms ease;
+  }
+
+  .app-card {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--app-surface-strong) 88%, transparent), var(--app-surface));
+    border: 1px solid var(--app-border);
+    box-shadow: 0 14px 40px var(--app-shell-shadow);
+    backdrop-filter: blur(18px);
+    transition: background 300ms ease, border-color 300ms ease, box-shadow 300ms ease, color 300ms ease;
+  }
+
+  .app-accent-gradient {
+    background: linear-gradient(135deg, var(--app-primary), var(--app-secondary));
+    transition: background 300ms ease, background-position 300ms ease;
+  }
+
+  .app-accent-text {
+    transition: color 300ms ease;
+  }
+
+  .text-gradient {
+    transition: background 300ms ease, -webkit-background-clip 300ms ease;
+  }
+
+  svg {
+    transition: fill 300ms ease, color 300ms ease, opacity 200ms ease;
+  }
+
+  .rounded-lg, .rounded-xl, .app-panel, .app-card {
+    transition: border-color 300ms ease, background 300ms ease, box-shadow 300ms ease;
+  }
+
+  /* class added briefly during theme change to ensure transitions run */
+  html.theme-transition body,
+  html.theme-transition .app-panel,
+  html.theme-transition .app-card,
+  html.theme-transition .app-accent-gradient,
+  html.theme-transition .app-accent-text,
+  html.theme-transition svg {
+    transition-duration: 340ms !important;
+  }
+
+  html.theme-cover body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--app-surface-strong) 72%, transparent),
+      color-mix(in srgb, var(--app-bg) 64%, transparent)
+    );
+    opacity: 0.28;
+    transition: opacity 300ms ease;
+  }
+
+  html:not(.theme-cover) body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--app-surface-strong) 72%, transparent),
+      color-mix(in srgb, var(--app-bg) 64%, transparent)
+    );
+    opacity: 0;
+    transition: opacity 300ms ease;
+  }
+
+  .app-accent-text {
+    color: var(--app-primary);
+  }
+
+  .card-gradient {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--app-primary) 12%, var(--app-surface-strong)), color-mix(in srgb, var(--app-secondary) 8%, var(--app-surface)));
+  }
+
+  .text-gradient {
+    background: linear-gradient(90deg, var(--app-primary), var(--app-secondary));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .app-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .app-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

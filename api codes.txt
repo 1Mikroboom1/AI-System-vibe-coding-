@@ -1,0 +1,4 @@
+Claude: sk-37fdd8580c7a7f44-77b6ac-621c65d5 (OmniRoute)
+ChatGPT: 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
+DeepSeek: sk-7e307fe7dd844ce4aac89ac03f37f18c
+OpenRouter: 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

@@ -1,0 +1,101 @@
+{
+  "name": "rag-desktop",
+  "version": "1.0.0",
+  "description": "Enterprise RAG Desktop Application with React, TypeScript, and Express",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently \"npm run client\" \"npm run server\"",
+    "client": "vite --host",
+    "server": "cross-env NODE_ENV=development ts-node --project tsconfig.server.json src/server/server.ts",
+    "build": "tsc && vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "desktop:dev": "concurrently \"npm run server\" \"npm run client\" \"wait-on tcp:3000 && electron .\"",
+    "desktop:start": "npm run build:server && npm run build && electron .",
+    "desktop:pack": "npm run build:server && npm run build && electron-builder --dir",
+    "desktop:build": "npm run build:server && npm run build && node scripts/build-installer.js",
+    "start": "node dist/server/server.js",
+    "preview": "vite preview --host",
+    "lint": "eslint . --ext .ts,.tsx",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.6",
+    "@radix-ui/react-label": "^2.1.2",
+    "@radix-ui/react-scroll-area": "^1.2.3",
+    "@radix-ui/react-separator": "^1.1.2",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-tabs": "^1.1.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/pg": "^8.15.5",
+    "class-variance-authority": "^0.7.1",
+    "compression": "^1.8.1",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "framer-motion": "^12.23.24",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.487.0",
+    "next-themes": "^0.4.6",
+    "pg": "^8.16.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.55.0",
+    "react-resizable-panels": "^2.1.7",
+    "recharts": "^2.15.2",
+    "sonner": "^2.0.3",
+    "zod": "^4.1.12",
+    "zustand": "^4.4.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "@types/bcrypt": "^6.0.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^20.19.22",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@typescript-eslint/eslint-plugin": "^8.46.1",
+    "@typescript-eslint/parser": "^8.46.1",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.5.0",
+    "cross-env": "^10.1.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "eslint": "^9.38.0",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^3.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.rosatom.ragdesktop",
+    "productName": "RAG Desktop",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "RAG Desktop"
+    }
+  }
+}
