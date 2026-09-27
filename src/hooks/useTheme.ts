@@ -64,24 +64,14 @@ export function useTheme() {
     });
   };
 
-  const resetThemePresets = () => {
-    updateThemeStore({
-      presets: defaultThemePresets,
-      activeId: defaultThemePresets[0]?.id ?? "",
-      mode: theme
-    });
-  };
-
   return {
     theme,
     setTheme,
     themePresets,
     activeThemeId,
-    activeTheme,
     setActiveThemeId,
     upsertThemePreset,
-    deleteThemePreset,
-    resetThemePresets
+    deleteThemePreset
   };
 }
 

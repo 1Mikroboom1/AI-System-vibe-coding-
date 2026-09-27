@@ -5,13 +5,39 @@
  * Builds a standalone Windows installer for Super Chat
  */
 
+const path = require("path");
+const { execFileSync } = require("child_process");
 const { build, Platform, Arch } = require("electron-builder");
+
+function killRunningElectron() {
+  if (process.platform !== "win32") {
+    return;
+  }
+
+  const commands = [
+    ["taskkill", ["/F", "/IM", "electron.exe", "/T"]],
+    ["taskkill", ["/F", "/IM", "RAG Desktop.exe", "/T"]],
+    ["taskkill", ["/F", "/IM", "Super Chat.exe", "/T"]]
+  ];
+
+  for (const [command, args] of commands) {
+    try {
+      execFileSync(command, args, { stdio: "ignore" });
+    } catch {
+      // Ignore when the process is not running.
+    }
+  }
+}
+
+killRunningElectron();
+
+const outputDir = path.resolve(process.cwd(), "release-package", `build-${Date.now()}`);
 
 const config = {
   appId: "com.superchat.app",
   productName: "Super Chat",
   directories: {
-    output: "release",
+    output: outputDir,
     buildResources: "electron"
   },
   files: [

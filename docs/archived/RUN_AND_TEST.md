@@ -62,7 +62,7 @@ node test-omniroute.js
 # 🧪 OmniRoute Connection Test
 # 
 # Base URL: http://localhost:20128/v1
-# API Key: sk-37fdd8580c...6c65d5
+# API Key: <OMNIROUTE_API_KEY>
 # 
 # 🔍 Checking connectivity to localhost:20128...
 # ✓ Host is reachable
@@ -90,7 +90,7 @@ node test-omniroute.js
 3. Выбрать "OmniRoute" из dropdown
 4. Ввести параметры:
    - Base URL: `http://localhost:20128/v1`
-   - API Key: `sk-37fdd8580c7a7f44-77b6ac-621c65d5`
+  - API Key: `<OMNIROUTE_API_KEY>`
 5. Нажать "Test Connection"
    - Должно появиться ✅ "Successfully connected to OmniRoute"
 6. Нажать "Save API Settings"
@@ -232,7 +232,7 @@ const { sendMessage } = require('./dist/server/server.cjs');
 
 sendMessage(
   'http://localhost:20128/v1',
-  'sk-37fdd8580c7a7f44-77b6ac-621c65d5',
+  '<OMNIROUTE_API_KEY>',
   {
     model: 'gpt-3.5-turbo',
     messages: [{ role: 'user', content: 'Test' }]
@@ -259,7 +259,7 @@ const { testOmniRouteConnection } = require('./dist/server/server.cjs');
 
 testOmniRouteConnection(
   'http://localhost:20128/v1',
-  'sk-37fdd8580c7a7f44-77b6ac-621c65d5'
+  '<OMNIROUTE_API_KEY>'
 ).then(result => {
   console.log('Status:', result.status);
   console.log('Message:', result.message);

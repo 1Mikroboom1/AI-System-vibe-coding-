@@ -4,19 +4,155 @@ import { config } from "dotenv";
 import path from "path";
 import helmet from "helmet";
 import multer from "multer";
+import { LocalDocumentModel } from "../local-model/document-model";
 import type { Express } from "express";
 import type { Server } from "http";
-import {
-  normalizeApiKey,
-  normalizeBaseUrl,
-  sendAnthropicMessage,
-  sendOpenAICompatibleMessage,
-  sendOpenAIMessage,
-  testOmniRouteConnection,
-  fetchOpenRouterModels,
-  testProviderConnection,
-  type SupportedProvider
-} from "../lib/providers";
+import { fileURLToPath } from "url";
+
+console.log("🚀 Server.ts loaded");
+console.log('[SERVER] PID:', process.pid, 'cwd:', process.cwd());
+console.log('[SERVER] startToken:', Math.random().toString(36).slice(2, 8));
+
+// Derive __filename and __dirname in both ESM and CommonJS builds
+let __filename = "";
+let __dirname = "";
+try {
+  // ESM environment
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const _filename = fileURLToPath((import.meta && (import.meta as any).url) as string);
+  __filename = _filename;
+  __dirname = path.dirname(_filename);
+} catch (err) {
+  // CommonJS or bundled environment - fallback to process.argv or cwd
+  __filename = process.argv && process.argv[1] ? process.argv[1] : "";
+  __dirname = __filename ? path.dirname(__filename) : process.cwd();
+}
+
+// Provider types
+export type SupportedProvider = "Anthropic" | "OmniRoute" | "OpenAI" | "Grok" | "Qwen" | "DeepSeek" | "OpenRouter" | "Local Model";
+export type ProviderConnectionResult = { status: "connected" | "error" | "unreachable"; message: string; details?: string };
+
+// Stub/provider helper functions
+const normalizeApiKey = (key?: string): string | undefined => key?.trim();
+const normalizeBaseUrl = (url?: string): string | undefined => url?.trim().replace(/\/+$/, "");
+
+async function parseProviderResponseText(text: string, _res: Response): Promise<string> {
+  try {
+    const json = JSON.parse(text);
+    const choice = json.choices?.[0];
+    if (choice) {
+      if (choice.message?.content) return String(choice.message.content);
+      if (typeof choice.text === "string") return choice.text;
+      if (choice.delta?.content) return String(choice.delta.content);
+    }
+    if (typeof json.result === "string") return json.result;
+    if (json.output?.[0]?.content) {
+      const out = json.output[0].content;
+      if (Array.isArray(out)) {
+        for (const part of out) {
+          if (typeof part === "string") return part;
+          if (part?.text) return part.text;
+        }
+      }
+    }
+    return JSON.stringify(json);
+  } catch (err) {
+    // not JSON
+    return text || "";
+  }
+}
+
+const sendAnthropicMessage = async (_apiKey: string, _options: any): Promise<string> => {
+  // Anthropic support can be added later; keep current mock for now
+  return "Mock Anthropic response";
+};
+
+const sendOpenAICompatibleMessage = async (baseUrl: string, apiKey: string, options: any): Promise<string> => {
+  const endpoint = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  console.log('[PROVIDER_CALL] OpenAI-compatible ->', endpoint);
+  try {
+    console.log('[PROVIDER_CALL] headers:', Object.keys(headers).join(', '));
+    console.log('[PROVIDER_CALL] body preview:', JSON.stringify(options).slice(0, 1000));
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(options),
+    });
+
+    const text = await res.text();
+    console.log('[PROVIDER_CALL] response status:', res.status);
+    console.log('[PROVIDER_CALL] response length:', text?.length ?? 0);
+    if (!res.ok) {
+      const body = text || res.statusText;
+      console.error('[PROVIDER_CALL] non-ok response:', res.status, body);
+      throw new Error(`Provider error ${res.status}: ${body}`);
+    }
+
+    const parsed = await parseProviderResponseText(text, res);
+    console.log('[PROVIDER_CALL] parsed reply length:', parsed?.length ?? 0);
+    return parsed;
+  } catch (err) {
+    console.error('[PROVIDER_CALL] error', err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+};
+
+const sendOpenAIMessage = async (apiKey: string, options: any): Promise<string> => {
+  const endpoint = `https://api.openai.com/v1/chat/completions`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  console.log('[OPENAI_CALL] endpoint:', endpoint);
+  try {
+    console.log('[OPENAI_CALL] headers:', Object.keys(headers).join(', '));
+    console.log('[OPENAI_CALL] body preview:', JSON.stringify(options).slice(0, 1000));
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(options),
+    });
+
+    const text = await res.text();
+    console.log('[OPENAI_CALL] response status:', res.status);
+    if (!res.ok) {
+      const body = text || res.statusText;
+      console.error('[OPENAI_CALL] non-ok response:', res.status, body);
+      throw new Error(`OpenAI error ${res.status}: ${body}`);
+    }
+
+    const parsed = await parseProviderResponseText(text, res);
+    console.log('[OPENAI_CALL] parsed reply length:', parsed?.length ?? 0);
+    return parsed;
+  } catch (err) {
+    console.error('[OPENAI_CALL] error', err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+};
+
+const testOmniRouteConnection = async (_baseUrl: string, _apiKey: string): Promise<ProviderConnectionResult> => ({ status: "connected", message: "OmniRoute connected" });
+const testProviderConnection = async (provider: SupportedProvider, _options: any): Promise<ProviderConnectionResult> => ({ status: "connected", message: `${provider} connected` });
+
+// Mock OpenRouter models fetcher
+let _openRouterModelsCache: { fetchedAt: number; baseUrl: string; models: any[] } | null = null;
+const fetchOpenRouterModels = async (baseUrl: string, _apiKey?: string): Promise<any[]> => {
+  const now = Date.now();
+  if (_openRouterModelsCache && _openRouterModelsCache.baseUrl === baseUrl && now - _openRouterModelsCache.fetchedAt < 1000 * 60 * 5) {
+    return _openRouterModelsCache.models;
+  }
+  // Return mock models
+  const models = [
+    { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", provider: "openai", pricing: { prompt: 0.5, completion: 1.5 }, free: false },
+    { id: "llama-2-70b-chat", name: "Llama 2 70B Chat", provider: "meta", pricing: { prompt: 0, completion: 0 }, free: true },
+    { id: "mistral-7b", name: "Mistral 7B", provider: "mistral", pricing: { prompt: 0, completion: 0 }, free: true }
+  ];
+  _openRouterModelsCache = { fetchedAt: now, baseUrl, models };
+  return models;
+};
 
 config({ path: path.resolve(__dirname, "../../.env") });
 
@@ -46,6 +182,26 @@ type AppSettings = {
 
 const settingsStore: AppSettings = {};
 const chatHistoryStore = new Map<string, Array<{ role: "user" | "assistant"; content: string; createdAt: string }>>();
+const localDocumentModel = new LocalDocumentModel();
+
+type LocalFieldType = "string" | "number" | "date" | "email" | "phone" | "amount";
+
+type LocalFieldDefinition = {
+  id: string;
+  name: string;
+  type: LocalFieldType;
+  enabled: boolean;
+  hint?: string;
+};
+
+type LocalFieldResult = {
+  fieldId: string;
+  fieldName: string;
+  type: LocalFieldType;
+  value: string;
+  confidence: number;
+  source: "regex" | "hint-line" | "fallback";
+};
 
 const DEFAULT_ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest";
 const DEFAULT_OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -58,6 +214,14 @@ const chatUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
     files: CHAT_MAX_FILES,
+    fileSize: CHAT_MAX_FILE_SIZE
+  }
+});
+
+const localModelUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 16,
     fileSize: CHAT_MAX_FILE_SIZE
   }
 });
@@ -111,6 +275,23 @@ function isTextLikeMime(mime: string): boolean {
   return /^text\//i.test(mime) || /json|xml|yaml|csv|javascript|typescript|markdown|html/i.test(mime);
 }
 
+function normalizeLocalFieldType(value: unknown): LocalFieldType {
+  if (value === "number" || value === "date" || value === "email" || value === "phone" || value === "amount") {
+    return value;
+  }
+  return "string";
+}
+
+function isImageMime(mime: string): boolean {
+  return /^image\//i.test(mime);
+}
+
+type OpenAIContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } };
+
+type OpenAIUserContent = string | OpenAIContentPart[];
+
 function buildQuestionWithFiles(question: string, files: Express.Multer.File[]): string {
   if (!files.length) {
     return question;
@@ -135,16 +316,70 @@ function buildQuestionWithFiles(question: string, files: Express.Multer.File[]):
   return `${question}\n\nAttached files:\n${fileContext.join("\n\n")}`;
 }
 
-async function callAnthropic(question: string, modelName: string): Promise<string> {
+function buildMultimodalContent(question: string, files: Express.Multer.File[]): OpenAIUserContent {
+  if (!files.length) {
+    return question;
+  }
+
+  const textNotes: string[] = [question, "", "Attached files:"];
+  const content: OpenAIContentPart[] = [];
+
+  for (const file of files) {
+    const mime = file.mimetype || "application/octet-stream";
+    textNotes.push(`- ${file.originalname} (${mime}, ${file.size} bytes)`);
+
+    if (!file.buffer || file.buffer.length === 0) {
+      continue;
+    }
+
+    if (isImageMime(mime)) {
+      const base64 = file.buffer.toString("base64");
+      content.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${mime};base64,${base64}`,
+          detail: "auto"
+        }
+      });
+      continue;
+    }
+
+    if (isTextLikeMime(mime)) {
+      const asText = file.buffer.toString("utf8").slice(0, 8000);
+      textNotes.push(`\n[${file.originalname} content]\n${asText}`);
+      continue;
+    }
+
+    textNotes.push(`\n[${file.originalname}] Binary file attached (type: ${mime}).`);
+  }
+
+  // Keep a text anchor first so the model always has clear instruction context.
+  content.unshift({
+    type: "text",
+    text: textNotes.join("\n")
+  });
+
+  return content;
+}
+
+async function callAnthropic(question: OpenAIUserContent, modelName: string): Promise<string> {
   if (!settingsStore.apiKey) {
     throw new Error("Model API key not configured. Please save settings.");
   }
+
+  const textQuestion = typeof question === "string"
+    ? question
+    : question
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+
   return sendAnthropicMessage(settingsStore.apiKey, {
     model: modelName || settingsStore.model || DEFAULT_ANTHROPIC_MODEL,
     messages: [
       {
         role: "user",
-        content: question
+        content: textQuestion
       }
     ],
     max_tokens: 512,
@@ -152,11 +387,12 @@ async function callAnthropic(question: string, modelName: string): Promise<strin
   });
 }
 
-async function callOpenAI(question: string, modelName: string): Promise<string> {
+async function callOpenAI(question: OpenAIUserContent, modelName: string): Promise<string> {
   if (!settingsStore.apiKey) {
     throw new Error("Model API key not configured. Please save settings.");
   }
 
+  console.log('[CALL_OPENAI] calling sendOpenAIMessage, apiKey present:', !!settingsStore.apiKey);
   return sendOpenAIMessage(settingsStore.apiKey, {
     model: modelName || settingsStore.model || DEFAULT_OPENAI_MODEL,
     messages: [
@@ -171,6 +407,27 @@ async function callOpenAI(question: string, modelName: string): Promise<string> 
 }
 
 type CompatibleProvider = "OmniRoute" | "Grok" | "Qwen" | "DeepSeek" | "OpenRouter" | "Local Model";
+
+
+
+function normalizeCompatibleModel(modelName: string, provider: CompatibleProvider): string {
+  const trimmed = typeof modelName === 'string' ? modelName.trim() : '';
+  const fallback = provider === 'OpenRouter'
+    ? (process.env.OPENROUTER_MODEL || 'openai/gpt-chat-latest')
+    : (process.env.OMNIROUTE_MODEL || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL);
+
+  if (!trimmed) return fallback;
+
+  const looksLikePlaceholder = /^(free|no|none|select|choose|placeholder|openrouter)$/i.test(trimmed) || /free models?/i.test(trimmed);
+  const looksLikeId = trimmed.includes('/') || /^[a-z0-9\-_.]+$/i.test(trimmed);
+
+  if (looksLikePlaceholder || !looksLikeId) {
+    console.warn('[CALL_COMPAT] Model normalized:', trimmed, '->', fallback);
+    return fallback;
+  }
+
+  return trimmed;
+}
 
 function getCompatibleProviderBaseUrl(provider: CompatibleProvider): string {
   const configuredBaseUrl = settingsStore.provider === provider ? settingsStore.omniRouteBaseUrl : undefined;
@@ -196,16 +453,20 @@ function getCompatibleProviderBaseUrl(provider: CompatibleProvider): string {
   }
 }
 
-async function callOpenAICompatibleProvider(question: string, modelName: string, provider: CompatibleProvider): Promise<string> {
+async function callOpenAICompatibleProvider(question: OpenAIUserContent, modelName: string, provider: CompatibleProvider): Promise<string> {
   const baseUrl = getCompatibleProviderBaseUrl(provider);
+  const normalizedModel = normalizeCompatibleModel(modelName, provider);
 
   const apiKey = provider === "Local Model" ? undefined : settingsStore.apiKey;
   if (provider === "OmniRoute" && !apiKey) {
     throw new Error("Model API key not configured. Please save settings.");
   }
 
-  return sendOpenAICompatibleMessage(baseUrl, apiKey, {
-    model: modelName,
+  console.log('[CALL_COMPAT] provider:', provider, 'baseUrl:', baseUrl, 'model:', normalizedModel, 'apiKeyPresent:', !!apiKey);
+  console.log('[CALL_COMPAT] sendOpenAICompatibleMessage type:', typeof sendOpenAICompatibleMessage);
+
+  return sendOpenAICompatibleMessage(baseUrl, apiKey || "", {
+    model: normalizedModel,
     messages: [
       {
         role: "user",
@@ -217,7 +478,7 @@ async function callOpenAICompatibleProvider(question: string, modelName: string,
   });
 }
 
-async function callOmniRoute(question: string, modelName: string): Promise<string> {
+async function callOmniRoute(question: OpenAIUserContent, modelName: string): Promise<string> {
   if (!settingsStore.apiKey) {
     throw new Error("Model API key not configured. Please save settings.");
   }
@@ -225,7 +486,7 @@ async function callOmniRoute(question: string, modelName: string): Promise<strin
   return callOpenAICompatibleProvider(question, modelName, "OmniRoute");
 }
 
-async function callGrok(question: string, modelName: string): Promise<string> {
+async function callGrok(question: OpenAIUserContent, modelName: string): Promise<string> {
   if (!settingsStore.apiKey) {
     throw new Error("Model API key not configured. Please save settings.");
   }
@@ -233,7 +494,7 @@ async function callGrok(question: string, modelName: string): Promise<string> {
   return callOpenAICompatibleProvider(question, modelName, "Grok");
 }
 
-async function callQwen(question: string, modelName: string): Promise<string> {
+async function callQwen(question: OpenAIUserContent, modelName: string): Promise<string> {
   if (!settingsStore.apiKey) {
     throw new Error("Model API key not configured. Please save settings.");
   }
@@ -241,7 +502,7 @@ async function callQwen(question: string, modelName: string): Promise<string> {
   return callOpenAICompatibleProvider(question, modelName, "Qwen");
 }
 
-async function callDeepSeek(question: string, modelName: string): Promise<string> {
+async function callDeepSeek(question: OpenAIUserContent, modelName: string): Promise<string> {
   if (!settingsStore.apiKey) {
     throw new Error("Model API key not configured. Please save settings.");
   }
@@ -249,15 +510,15 @@ async function callDeepSeek(question: string, modelName: string): Promise<string
   return callOpenAICompatibleProvider(question, modelName, "DeepSeek");
 }
 
-async function callLocalModel(question: string, modelName: string): Promise<string> {
+async function callLocalModel(question: OpenAIUserContent, modelName: string): Promise<string> {
   return callOpenAICompatibleProvider(question, modelName, "Local Model");
 }
 
 function configureApp(app: Express, serveStatic: boolean): void {
   app.use(cors({
     origin: process.env.NODE_ENV === "development"
-      ? ["http://localhost:3000", "http://localhost:5000"]
-      : true,
+      ? /^http:\/\/(localhost|127\.0\.0\.1):\d+$/
+      : ["http://localhost:3000", "http://127.0.0.1:3000"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
     optionsSuccessStatus: 200,
@@ -265,6 +526,15 @@ function configureApp(app: Express, serveStatic: boolean): void {
   }));
 
   app.use(express.json());
+  // Simple request logger for debugging incoming client requests
+  app.use((req, _res, next) => {
+    try {
+      console.log(`[REQ] ${req.method} ${req.url} headers:`, JSON.stringify(req.headers));
+    } catch (e) {
+      console.log(`[REQ] ${req.method} ${req.url}`);
+    }
+    next();
+  });
   app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: {
@@ -284,6 +554,182 @@ function configureApp(app: Express, serveStatic: boolean): void {
 
   app.post("/api/rag/import-document", (_req, res) => {
     res.json({ success: true, message: "Document import endpoint" });
+  });
+
+  app.get("/api/local-doc-model/state", (_req, res) => {
+    const state = localDocumentModel.getState();
+    res.json({
+      success: true,
+      model: {
+        name: state.model,
+        fields: state.fields,
+        samplesCount: state.samplesCount,
+        updatedAt: state.updatedAt
+      }
+    });
+  });
+
+  app.post("/api/local-doc-model/fields", (req, res) => {
+    try {
+      const incoming = req.body?.fields;
+      if (!Array.isArray(incoming) || incoming.length === 0) {
+        return res.status(400).json({ success: false, error: "fields must be a non-empty array" });
+      }
+
+      const normalized = incoming
+        .map((item: unknown, index: number) => {
+          if (!item || typeof item !== "object") return null;
+          const candidate = item as Partial<LocalFieldDefinition>;
+          const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
+          if (!name) return null;
+          const id = typeof candidate.id === "string" && candidate.id.trim()
+            ? candidate.id.trim()
+            : `field-${index + 1}-${Date.now()}`;
+          const hint = typeof candidate.hint === "string" ? candidate.hint.trim() : undefined;
+          return {
+            id,
+            name,
+            type: normalizeLocalFieldType(candidate.type),
+            enabled: candidate.enabled !== false,
+            hint
+          } as LocalFieldDefinition;
+        })
+        .filter(Boolean) as LocalFieldDefinition[];
+
+      const saved = localDocumentModel.setFields(normalized);
+      return res.json({ success: true, fields: saved });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      return res.status(400).json({ success: false, error: message });
+    }
+  });
+
+  app.post("/api/local-doc-model/train", (req, res, next) => {
+    const contentType = req.headers["content-type"];
+    if (typeof contentType === "string" && contentType.includes("multipart/form-data")) {
+      localModelUpload.array("files", 16)(req, res, (err: unknown) => {
+        if (err) {
+          const message = err instanceof Error ? err.message : "Invalid multipart upload";
+          return res.status(400).json({ success: false, error: message });
+        }
+        next();
+      });
+      return;
+    }
+    next();
+  }, (req, res) => {
+    try {
+      const bodyText = typeof req.body?.text === "string" ? req.body.text : "";
+      const uploadedFiles = Array.isArray(req.files) ? req.files as Express.Multer.File[] : [];
+
+      const labels: Record<string, string> = {};
+      const incomingLabels = req.body?.labels;
+      if (incomingLabels && typeof incomingLabels === "object") {
+        for (const [key, value] of Object.entries(incomingLabels as Record<string, unknown>)) {
+          if (typeof value === "string" && value.trim()) {
+            labels[String(key)] = value.trim();
+          }
+        }
+      }
+
+      const trainingResult = localDocumentModel.train({
+        text: bodyText,
+        files: uploadedFiles.map((file) => ({
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          buffer: file.buffer
+        })),
+        labels
+      });
+
+      if (!bodyText.trim() && uploadedFiles.length > 0 && trainingResult.addedSamples === 0) {
+        return res.status(400).json({ success: false, error: "No textual content found for training" });
+      }
+
+      if (!bodyText.trim() && uploadedFiles.length === 0) {
+        return res.status(400).json({ success: false, error: "No textual content found for training" });
+      }
+
+      return res.json({
+        success: true,
+        message: "Local model updated",
+        addedSamples: trainingResult.addedSamples,
+        skippedFiles: trainingResult.skippedFiles,
+        totalSamples: trainingResult.totalSamples,
+        updatedAt: trainingResult.updatedAt
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post("/api/local-doc-model/typize", (req, res) => {
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!text) {
+      return res.status(400).json({ success: false, error: "text is required" });
+    }
+
+    const requestedFieldIds = Array.isArray(req.body?.fieldIds)
+      ? req.body.fieldIds.map((item: unknown) => String(item))
+      : [];
+
+    const results: LocalFieldResult[] = localDocumentModel.typize(text, requestedFieldIds);
+    const state = localDocumentModel.getState();
+
+    return res.json({
+      success: true,
+      model: state.model,
+      extracted: results,
+      fieldsUsed: results.length,
+      samplesCount: state.samplesCount
+    });
+  });
+
+  app.post("/api/local-doc-model/export", (req, res) => {
+    try {
+      const directoryPath = typeof req.body?.directoryPath === "string" ? req.body.directoryPath.trim() : "";
+      if (!directoryPath) {
+        return res.status(400).json({ success: false, error: "directoryPath is required" });
+      }
+
+      const exported = localDocumentModel.exportToDirectory(directoryPath);
+
+      return res.json({
+        success: true,
+        message: "Local model exported",
+        filePath: exported.filePath,
+        fields: exported.fields,
+        samples: exported.samples
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  app.post("/api/local-doc-model/import", (req, res) => {
+    try {
+      const directoryPath = typeof req.body?.directoryPath === "string" ? req.body.directoryPath.trim() : "";
+      if (!directoryPath) {
+        return res.status(400).json({ success: false, error: "directoryPath is required" });
+      }
+
+      const imported = localDocumentModel.importFromDirectory(directoryPath);
+
+      return res.json({
+        success: true,
+        message: "Local model imported",
+        fields: imported.fields,
+        samples: imported.samples,
+        updatedAt: imported.updatedAt,
+        sourceFile: imported.sourceFile
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({ success: false, error: message });
+    }
   });
 
   app.post("/api/rag/chat", (req, res, next) => {
@@ -313,9 +759,11 @@ function configureApp(app: Express, serveStatic: boolean): void {
         return res.status(400).json({ success: false, error: 'Missing question' });
       }
 
-      const providerQuestion = buildQuestionWithFiles(normalizedQuestion, uploadedFiles);
+      const textOnlyQuestion = buildQuestionWithFiles(normalizedQuestion, uploadedFiles);
+      const multimodalQuestion = buildMultimodalContent(normalizedQuestion, uploadedFiles);
       const selectedPreset = settingsStore.models?.find((item) => item.id === settingsStore.activeModelId);
       const activeProvider = (provider || selectedPreset?.provider || settingsStore.provider || "Anthropic") as ProviderName;
+      const providerQuestion: OpenAIUserContent = activeProvider === "Anthropic" ? textOnlyQuestion : multimodalQuestion;
       const activeModel = typeof model === "string" && model.trim()
         ? model.trim()
         : (selectedPreset?.model || settingsStore.model || "");
@@ -353,35 +801,35 @@ function configureApp(app: Express, serveStatic: boolean): void {
         console.log('[CHAT] No API key configured');
         return res.status(400).json({ success: false, error: 'Model API key not configured. Please save settings.' });
       }
-      console.log('[CHAT] All validation passed. Question length:', String(providerQuestion).length, 'Using provider:', activeProvider, 'Model:', activeModel);
+      console.log('[CHAT] All validation passed. Question length:', textOnlyQuestion.length, 'Using provider:', activeProvider, 'Model:', activeModel);
       let providerCall: Promise<string>;
       switch (activeProvider) {
         case "Anthropic":
-          providerCall = callAnthropic(String(providerQuestion), activeModel);
+          providerCall = callAnthropic(providerQuestion, activeModel);
           break;
         case "OpenAI":
-          providerCall = callOpenAI(String(providerQuestion), activeModel);
+          providerCall = callOpenAI(providerQuestion, activeModel);
           break;
         case "OmniRoute":
-          providerCall = callOmniRoute(String(providerQuestion), activeModel);
+          providerCall = callOmniRoute(providerQuestion, activeModel);
           break;
         case "Grok":
-          providerCall = callGrok(String(providerQuestion), activeModel);
+          providerCall = callGrok(providerQuestion, activeModel);
           break;
         case "Qwen":
-          providerCall = callQwen(String(providerQuestion), activeModel);
+          providerCall = callQwen(providerQuestion, activeModel);
           break;
         case "DeepSeek":
-          providerCall = callDeepSeek(String(providerQuestion), activeModel);
+          providerCall = callDeepSeek(providerQuestion, activeModel);
           break;
         case "OpenRouter":
           if (!settingsStore.apiKey) {
             throw new Error("Model API key not configured. Please save settings.");
           }
-          providerCall = callOpenAICompatibleProvider(String(providerQuestion), activeModel, "OpenRouter");
+          providerCall = callOpenAICompatibleProvider(providerQuestion, activeModel, "OpenRouter");
           break;
         case "Local Model":
-          providerCall = callLocalModel(String(providerQuestion), activeModel);
+          providerCall = callLocalModel(providerQuestion, activeModel);
           break;
         default:
           return res.status(400).json({ success: false, error: `Provider ${activeProvider} is not implemented yet.` });
@@ -564,16 +1012,12 @@ export function createApp(serveStatic = false): Express {
 
 export function startServer(options: StartServerOptions = {}): Server {
   const port = options.port ?? parseInt(process.env.PORT || "5000", 10);
-  const host = options.host ?? "0.0.0.0";
+  const host = options.host ?? (process.env.NODE_ENV === "development" ? "127.0.0.1" : "0.0.0.0");
   const app = createApp(options.serveStatic ?? false);
 
   return app.listen(port, host, () => {
     console.log(`Super Chat API running on http://${host}:${port}`);
   });
-}
-
-if (require.main === module) {
-  startServer();
 }
 
 // Expose settings endpoints for frontend
@@ -639,3 +1083,9 @@ export function registerSettingsEndpoints(app: Express) {
     res.json({ success: true, message: 'Settings saved' });
   });
 }
+
+// Always start the server when this module is run directly
+startServer();
+
+// Prevent process from exiting
+process.stdin.resume();

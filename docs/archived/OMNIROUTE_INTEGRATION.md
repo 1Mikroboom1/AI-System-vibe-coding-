@@ -16,7 +16,7 @@ The application now supports OmniRoute as a provider for connecting to multiple 
   - HTTPS is supported for remote instances
 
 ### 2. **API Key**
-- **Format**: OmniRoute API keys typically start with `sk-` (e.g., `sk-37fdd8580c7a7f44-77b6ac-621c65d5`)
+- **Format**: OmniRoute API keys typically start with `sk-` (e.g., `<OMNIROUTE_API_KEY>`)
 - **Security**: Keys are stored locally on your machine, never sent to external servers
 - **Bearer Token**: Keys are sent as `Authorization: Bearer <key>` in requests
 
@@ -106,7 +106,7 @@ import { sendMessage } from "../lib/providers";
 
 const response = await sendMessage(
   "http://localhost:20128/v1",
-  "sk-37fdd8580c7a7f44-77b6ac-621c65d5",
+  "<OMNIROUTE_API_KEY>",
   {
     model: "gpt-3.5-turbo",
     messages: [
@@ -125,7 +125,7 @@ import { testOmniRouteConnection } from "../lib/providers";
 
 const result = await testOmniRouteConnection(
   "http://localhost:20128/v1",
-  "sk-37fdd8580c7a7f44-77b6ac-621c65d5"
+  "<OMNIROUTE_API_KEY>"
 );
 
 if (result.status === "connected") {

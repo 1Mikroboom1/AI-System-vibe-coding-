@@ -11,6 +11,7 @@ declare global {
       platform: string;
       isDesktop: boolean;
       setDevToolsMode?: (mode: "off" | "detach" | "right") => Promise<void>;
+      selectDirectory?: () => Promise<string | null>;
     };
   }
 }

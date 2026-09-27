@@ -3,7 +3,7 @@
 ## Правильные параметры подключения к Kiro AI через OmniRoute
 
 **Base URL:** `http://localhost:20128/v1`
-**API Key:** `sk-37fdd8580c7a7f44-77b6ac-621c65d5`
+**API Key:** `<OMNIROUTE_API_KEY>`
 **API Type:** `OpenAI Compatible`
 
 ## Шаги подключения
@@ -36,7 +36,7 @@ http://localhost:20128/v1
 
 **Поле "API Key":**
 ```
-sk-37fdd8580c7a7f44-77b6ac-621c65d5
+<OMNIROUTE_API_KEY>
 ```
 
 ### 5. Тестировать подключение
@@ -103,7 +103,7 @@ sk-37fdd8580c7a7f44-77b6ac-621c65d5
 **Заголовки:**
 ```
 Content-Type: application/json
-Authorization: Bearer sk-37fdd8580c7a7f44-77b6ac-621c65d5
+Authorization: Bearer <OMNIROUTE_API_KEY>
 ```
 
 **Тело (JSON):**

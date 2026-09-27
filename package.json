@@ -10,12 +10,12 @@
     "client": "vite --host",
     "server": "cross-env NODE_ENV=development ts-node --project tsconfig.server.json src/server/server.ts",
     "build": "tsc && vite build",
-    "build:server": "tsc -p tsconfig.server.json",
+    "build:server": "npx esbuild src/server/server.ts --bundle --platform=node --format=cjs --outfile=dist/server/server.cjs --external:react --external:react-dom",
     "desktop:dev": "concurrently \"npm run server\" \"npm run client\" \"wait-on tcp:3000 && electron .\"",
-    "desktop:start": "npm run build:server && npm run build && electron .",
-    "desktop:pack": "npm run build:server && npm run build && electron-builder --dir",
-    "desktop:build": "npm run build:server && npm run build && node scripts/build-installer.js",
-    "start": "node dist/server/server.js",
+    "desktop:start": "npm run build && npm run build:server && electron .",
+    "desktop:pack": "npm run build && npm run build:server && electron-builder --dir",
+    "desktop:build": "npm run build && npm run build:server && node scripts/build-installer.cjs",
+    "start": "node dist/server/server.cjs",
     "preview": "vite preview --host",
     "lint": "eslint . --ext .ts,.tsx",
     "type-check": "tsc --noEmit"
@@ -77,7 +77,7 @@
     "appId": "com.rosatom.ragdesktop",
     "productName": "RAG Desktop",
     "directories": {
-      "output": "release"
+      "output": "release-package"
     },
     "files": [
       "dist/**/*",

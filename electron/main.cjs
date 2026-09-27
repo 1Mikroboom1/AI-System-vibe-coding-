@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { pathToFileURL } = require("url");
 
 let mainWindow = null;
 let backendServer = null;
@@ -23,17 +24,33 @@ ipcMain.handle("desktop:set-devtools-mode", (_event, mode) => {
   return mode;
 });
 
+ipcMain.handle("desktop:select-directory", async () => {
+  const targetWindow = BrowserWindow.getFocusedWindow() || mainWindow || null;
+  const result = await dialog.showOpenDialog(targetWindow || undefined, {
+    properties: ["openDirectory", "createDirectory"],
+    title: "Select directory"
+  });
+
+  if (result.canceled || !result.filePaths?.length) {
+    return null;
+  }
+
+  return result.filePaths[0];
+});
+
 async function startEmbeddedBackend() {
-  // Try multiple locations for the server when packaged:
-  // 1) resources/dist/server (if copied via extraResources)
-  // 2) app.asar.unpacked/dist/server (if asarUnpack created it)
-  // 3) relative to __dirname (works in dev and sometimes in asar)
-  // Server files are renamed to .cjs so they are treated as CommonJS in ESM projects
+  // Try multiple locations because build output layout can vary between environments.
   const candidates = [];
   if (app.isPackaged) {
-    candidates.push(path.join(process.resourcesPath, "app.asar", "dist", "server", "server.cjs"));
+    const appPath = app.getAppPath();
+    candidates.push(path.join(appPath, "dist", "server", "server", "server.js"));
+    candidates.push(path.join(appPath, "dist", "server", "server.js"));
+    candidates.push(path.join(appPath, "dist", "server", "server.cjs"));
   } else {
-    candidates.push(path.join(__dirname, "..", "dist", "server", "server.cjs"));
+    const devDist = path.join(__dirname, "..", "dist", "server");
+    candidates.push(path.join(devDist, "server", "server.js"));
+    candidates.push(path.join(devDist, "server.js"));
+    candidates.push(path.join(devDist, "server.cjs"));
   }
 
   let serverModulePath = null;
@@ -54,10 +71,25 @@ async function startEmbeddedBackend() {
   }
 
   console.log("Loading server from:", serverModulePath);
-  // eslint-disable-next-line global-require, import/no-dynamic-require
-  const serverModule = require(serverModulePath);
+  let serverModule;
+  if (serverModulePath.endsWith(".cjs")) {
+    // eslint-disable-next-line global-require, import/no-dynamic-require
+    serverModule = require(serverModulePath);
+  } else {
+    serverModule = await import(pathToFileURL(serverModulePath).href);
+  }
+
+  const startServer =
+    serverModule.startServer ||
+    (serverModule.default && serverModule.default.startServer) ||
+    serverModule.default;
+
+  if (typeof startServer !== "function") {
+    throw new Error(`startServer export not found in ${serverModulePath}`);
+  }
+
   console.log("Server module loaded, starting on port 5000...");
-  backendServer = serverModule.startServer({
+  backendServer = startServer({
     port: 5000,
     host: "127.0.0.1",
     serveStatic: false
@@ -108,13 +140,16 @@ async function createMainWindow() {
 
   console.log("Production mode: starting embedded backend");
   await startEmbeddedBackend();
-  const distPath = path.join(__dirname, "..", "dist");
+  
+  // Use app.getAppPath() which correctly resolves inside ASAR
+  const distPath = path.join(app.getAppPath(), "dist");
   const indexPath = path.join(distPath, "index.html");
   console.log("Index path:", indexPath);
   console.log("File exists:", fs.existsSync(indexPath));
   
   if (fs.existsSync(indexPath)) {
     console.log("Loading file:", indexPath);
+    // Use file:// protocol with path instead of loadFile for better compatibility
     await mainWindow.loadFile(indexPath);
     console.log("File loaded");
   } else {

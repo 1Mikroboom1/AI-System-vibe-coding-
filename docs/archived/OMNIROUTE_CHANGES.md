@@ -97,7 +97,7 @@ Content-Type: application/json
 ```
 Provider: OmniRoute
 Base URL: http://localhost:20128/v1
-API Key: sk-37fdd8580c7a7f44-77b6ac-621c65d5
+API Key: <OMNIROUTE_API_KEY>
 ```
 
 **Testing:**

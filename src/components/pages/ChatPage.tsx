@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { createCustomId, getProviderDisplayName, type ModelPreset } from "../../lib/customization";
+import { t, type Language } from "../../lib/i18n";
 
 type ChatRole = "user" | "assistant";
 
@@ -15,11 +16,13 @@ type MessageAttachment = {
   name: string;
   size: number;
   type: string;
+  previewUrl?: string;
 };
 
 type PendingAttachment = {
   id: string;
   file: File;
+  previewUrl?: string;
 };
 
 type ChatThread = {
@@ -32,8 +35,103 @@ type ChatThread = {
   updatedAt: string;
 };
 
+interface ChatPageProps {
+  language: Language;
+}
+
 const CHAT_THREADS_KEY = "rag-chat-threads:v2";
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+
+type MessageBlock =
+  | { type: "text"; content: string }
+  | { type: "code"; content: string; language?: string };
+
+function renderInlineCode(content: string): ReactNode[] {
+  const parts = content.split(/(`[^`]+`)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
+      return (
+        <code
+          key={`inline-code-${index}`}
+          className="rounded bg-slate-200/70 dark:bg-slate-800 px-1.5 py-0.5 text-[0.92em]"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <Fragment key={`inline-text-${index}`}>{part}</Fragment>;
+  });
+}
+
+function parseMessageBlocks(text: string): MessageBlock[] {
+  const blocks: MessageBlock[] = [];
+  const regex = /```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    const start = match.index;
+    if (start > cursor) {
+      blocks.push({ type: "text", content: text.slice(cursor, start) });
+    }
+
+    blocks.push({
+      type: "code",
+      content: match[2] ?? "",
+      language: match[1] || undefined
+    });
+
+    cursor = regex.lastIndex;
+  }
+
+  if (cursor < text.length) {
+    blocks.push({ type: "text", content: text.slice(cursor) });
+  }
+
+  return blocks.length ? blocks : [{ type: "text", content: text }];
+}
+
+function renderMessageText(text: string): ReactNode {
+  return parseMessageBlocks(text).map((block, blockIndex) => {
+    if (block.type === "code") {
+      return (
+        <div key={`code-${blockIndex}`} className="my-2 overflow-hidden rounded-lg border border-slate-300/80 dark:border-slate-600/80 bg-slate-950 text-slate-100">
+          {block.language && (
+            <div className="border-b border-slate-700/70 px-3 py-1 text-[11px] uppercase tracking-wide text-slate-400">
+              {block.language}
+            </div>
+          )}
+          <pre className="overflow-x-auto px-3 py-2 text-xs leading-relaxed">
+            <code>{block.content}</code>
+          </pre>
+        </div>
+      );
+    }
+
+    const paragraphs = block.content
+      .split(/\n{2,}/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    return (
+      <div key={`text-${blockIndex}`} className="space-y-2">
+        {paragraphs.map((paragraph, paragraphIndex) => {
+          const lines = paragraph.split("\n");
+          return (
+            <p key={`p-${blockIndex}-${paragraphIndex}`} className="whitespace-normal break-words leading-7">
+              {lines.map((line, lineIndex) => (
+                <Fragment key={`line-${blockIndex}-${paragraphIndex}-${lineIndex}`}>
+                  {renderInlineCode(line)}
+                  {lineIndex < lines.length - 1 && <br />}
+                </Fragment>
+              ))}
+            </p>
+          );
+        })}
+      </div>
+    );
+  });
+}
 
 function getChatTitleFromText(text: string): string {
   const trimmed = text.trim();
@@ -41,7 +139,7 @@ function getChatTitleFromText(text: string): string {
   return trimmed.length > 36 ? `${trimmed.slice(0, 36)}...` : trimmed;
 }
 
-export function ChatPage() {
+export function ChatPage({ language }: ChatPageProps) {
   const [input, setInput] = useState("");
   const [provider, setProvider] = useState<ModelPreset["provider"] | "">("");
   const [model, setModel] = useState<string>("");
@@ -64,8 +162,14 @@ export function ChatPage() {
   const activeChat = useMemo(() => chats.find((item) => item.id === activeChatId) ?? null, [chats, activeChatId]);
   const messages = activeChat?.messages ?? [];
 
+  // Filter chats to show only those with the currently selected model
+  const visibleChats = useMemo(() => {
+    if (!selectedModelId) return [];
+    return chats.filter((chat) => chat.modelId === selectedModelId);
+  }, [chats, selectedModelId]);
+
   useEffect(() => {
-    fetch('http://localhost:5000/api/settings')
+    fetch('/api/settings')
       .then((r) => r.json())
       .then((data) => {
         if (data?.success && data?.settings) {
@@ -95,6 +199,21 @@ export function ChatPage() {
       }
     }
   }, []);
+
+  // Auto-sync active chat with visible chats when model changes
+  useEffect(() => {
+    if (visibleChats.length === 0 && activeChatId) {
+      // No visible chats for current model, clear active
+      setActiveChatId("");
+    } else if (activeChatId && !visibleChats.find((c) => c.id === activeChatId)) {
+      // Active chat is not in visible list, select first visible
+      if (visibleChats.length > 0) {
+        setActiveChatId(visibleChats[0].id);
+      } else {
+        setActiveChatId("");
+      }
+    }
+  }, [visibleChats, activeChatId]);
 
   useEffect(() => {
     if (!models.length || !chats.length) {
@@ -258,23 +377,20 @@ export function ChatPage() {
 
   function updateActiveChatModel(modelId: string) {
     const selected = models.find((item) => item.id === modelId);
-    if (!selected || !activeChatId) return;
+    if (!selected) return;
 
     setSelectedModelId(modelId);
     setProvider(selected.provider);
     setModel(selected.model);
 
-    setChats((prev) => prev.map((item) => (
-      item.id === activeChatId
-        ? {
-            ...item,
-            provider: selected.provider,
-            model: selected.model,
-            modelId: selected.id,
-            updatedAt: new Date().toISOString()
-          }
-        : item
-    )));
+    // Find first chat with this model to switch to it
+    const chatWithModel = chats.find((chat) => chat.modelId === modelId);
+    if (chatWithModel) {
+      setActiveChatId(chatWithModel.id);
+    } else {
+      // No chats with this model yet, clear active chat
+      setActiveChatId("");
+    }
   }
 
   function appendMessageToActiveChat(message: ChatMessage) {
@@ -303,7 +419,13 @@ export function ChatPage() {
   }
 
   function removePendingAttachment(id: string) {
-    setPendingAttachments((prev) => prev.filter((item) => item.id !== id));
+    setPendingAttachments((prev) => {
+      const removed = prev.find((item) => item.id === id);
+      if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return prev.filter((item) => item.id !== id);
+    });
   }
 
   function addIncomingFiles(incomingFiles: File[]) {
@@ -314,13 +436,14 @@ export function ChatPage() {
 
     for (const file of incomingFiles) {
       if (file.size > MAX_ATTACHMENT_SIZE) {
-        firstError = `File ${file.name} is too large. Limit is 10 MB per file.`;
+        firstError = t("chat.fileTooLarge", language).replace("{name}", file.name);
         continue;
       }
 
       prepared.push({
         id: createCustomId("file"),
-        file
+        file,
+        previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined
       });
     }
 
@@ -333,7 +456,7 @@ export function ChatPage() {
   function uploadWithProgress(formData: FormData): Promise<Response> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", "http://localhost:5000/api/rag/chat");
+      xhr.open("POST", "/api/rag/chat");
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
@@ -363,21 +486,24 @@ export function ChatPage() {
 
   async function handleSend() {
     if (!activeChatId || !selectedModelId || !provider || !model) {
-      appendMessageToActiveChat({ from: "assistant", text: "No saved models are available. Add one in Settings first.", createdAt: new Date().toISOString() });
+      appendMessageToActiveChat({ from: "assistant", text: t("chat.noModelsError", language), createdAt: new Date().toISOString() });
       return;
     }
     if (!input.trim() && pendingAttachments.length === 0) return;
 
-    const question = input.trim() || "Analyze attached files";
+    const userText = input.trim() || t("chat.analyzeFiles", language);
+    const question = input.trim() || t("chat.analyzeFiles", language);
+
     const userMessage: ChatMessage = {
       from: "user",
-      text: question,
+      text: userText,
       createdAt: new Date().toISOString(),
       attachments: pendingAttachments.map((item) => ({
         id: item.id,
         name: item.file.name,
         size: item.file.size,
-        type: item.file.type || "application/octet-stream"
+        type: item.file.type || "application/octet-stream",
+        previewUrl: item.previewUrl
       }))
     };
     appendMessageToActiveChat(userMessage);
@@ -401,7 +527,7 @@ export function ChatPage() {
         res = await uploadWithProgress(formData);
       } else {
         setUploadProgress(100);
-        res = await fetch('http://localhost:5000/api/rag/chat', {
+        res = await fetch('/api/rag/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ question, provider, model })
@@ -413,12 +539,12 @@ export function ChatPage() {
         appendMessageToActiveChat({ from: "assistant", text: j.answer ?? "No answer", createdAt: new Date().toISOString() });
       } else {
         const errorText = res.status === 401
-          ? `Authentication failed: invalid ${provider} API key. Please save a valid key in Settings.`
-          : (j?.error ?? 'Error from server');
+          ? t("chat.authFailed", language).replace("{provider}", provider)
+          : (j?.error ?? t("chat.serverError", language));
         appendMessageToActiveChat({ from: "assistant", text: errorText, createdAt: new Date().toISOString() });
       }
     } catch {
-      appendMessageToActiveChat({ from: "assistant", text: "Network error", createdAt: new Date().toISOString() });
+      appendMessageToActiveChat({ from: "assistant", text: t("chat.networkError", language), createdAt: new Date().toISOString() });
     } finally {
       setUploadProgress(0);
       setLoading(false);
@@ -440,15 +566,15 @@ export function ChatPage() {
   return (
     <div className="py-8 space-y-6">
       <div className="app-panel rounded-2xl p-8">
-        <h2 className="text-3xl font-bold mb-2 app-accent-text">Super Chat</h2>
-        <p className="text-slate-600 dark:text-slate-400">Chat with your documents using advanced retrieval-augmented generation</p>
+        <h2 className="text-3xl font-bold mb-2 app-accent-text">{t("chat.title", language)}</h2>
+        <p className="text-slate-600 dark:text-slate-400">{t("chat.description", language)}</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-1 app-panel rounded-2xl p-4 h-fit">
-          <h3 className="font-semibold mb-4">Recent Chats</h3>
+          <h3 className="font-semibold mb-4">{t("chat.recentChats", language)}</h3>
 
-          <label htmlFor="chat-model" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Model in active chat</label>
+          <label htmlFor="chat-model" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">{t("chat.modelSelect", language)}</label>
           <select
             id="chat-model"
             name="chat-model"
@@ -459,7 +585,7 @@ export function ChatPage() {
             }}
             className="w-full mb-4 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70 dark:text-white disabled:opacity-60"
           >
-            <option value="">{models.length ? "Select saved model" : "No saved models"}</option>
+            <option value="">{models.length ? t("chat.selectModel", language) : t("chat.noModels", language)}</option>
             {models.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.name} · {getProviderDisplayName(option.provider)}
@@ -473,15 +599,20 @@ export function ChatPage() {
             disabled={!models.length}
             className="mb-3 w-full px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
           >
-            Create Chat
+            {t("chat.createChat", language)}
           </button>
 
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Active: {provider ? `${getProviderDisplayName(provider)} · ${model}` : "No active chat"}
+            {t("chat.noActiveChat", language)}: {provider ? `${getProviderDisplayName(provider)} · ${model}` : ""}
           </p>
-          {!models.length && <p className="mb-3 text-xs text-amber-600 dark:text-amber-400">Create and save models in Settings to enable chat.</p>}
+          {!models.length && <p className="mb-3 text-xs text-amber-600 dark:text-amber-400">{t("chat.noModelsHelp", language)}</p>}
+          {models.length > 0 && visibleChats.length === 0 && (
+            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+              {t("chat.noChatForModel", language)}
+            </p>
+          )}
           <div className="space-y-2">
-            {chats.map((chat) => (
+            {visibleChats.map((chat) => (
               <div
                 key={chat.id}
                 onClick={() => selectChat(chat.id)}
@@ -524,7 +655,7 @@ export function ChatPage() {
                             saveRenameChat(chat.id);
                           }}
                           className="text-xs px-2 py-1 rounded border border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
-                          title="Save"
+                          title={t("chat.save", language)}
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden>
                             <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
@@ -537,7 +668,7 @@ export function ChatPage() {
                             cancelRenameChat();
                           }}
                           className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900/20"
-                          title="Cancel"
+                          title={t("chat.cancel", language)}
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden>
                             <path d="M18.3 5.71L12 12l6.3 6.29-1.42 1.42L10.59 13.41 4.29 19.71 2.87 18.29 9.17 12 2.87 5.71 4.29 4.29 10.59 10.59 16.88 4.29z"/>
@@ -552,7 +683,7 @@ export function ChatPage() {
                           beginRenameChat(chat.id);
                         }}
                         className="text-xs px-2 py-1 rounded border border-blue-300 text-blue-600 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/20"
-                        title="Rename"
+                        title={t("chat.rename", language)}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden>
                           <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
@@ -566,7 +697,7 @@ export function ChatPage() {
                         deleteChat(chat.id);
                       }}
                       className="text-xs px-2 py-1 rounded border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/20"
-                      title="Delete"
+                        title={t("chat.delete", language)}
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden>
                         <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
@@ -600,11 +731,11 @@ export function ChatPage() {
           >
             <div className="flex min-h-full flex-col justify-end space-y-3">
               {messages.length === 0 && (
-                <p className="text-slate-500 dark:text-slate-400 text-center">Start a conversation by typing a question about your documents below...</p>
+                <p className="text-slate-500 dark:text-slate-400 text-center">{t("chat.startConversation", language)}</p>
               )}
               {isDragOver && (
                 <div className="mb-2 text-center text-sm font-medium text-blue-600 dark:text-blue-300">
-                  Drop files here to attach
+                  {t("chat.dropFiles", language)}
                 </div>
               )}
               {messages.map((m, idx) => {
@@ -613,7 +744,7 @@ export function ChatPage() {
                 return (
                   <div key={messageId} className={m.from === 'user' ? 'text-right' : 'text-left'}>
                     <div className={m.from === 'user' ? 'inline-block bg-blue-600 text-white px-3 py-2 rounded-lg max-w-full break-words' : 'inline-block bg-slate-100 dark:bg-slate-700 px-3 py-2 rounded-lg max-w-full break-words'}>
-                      {m.text}
+                      {renderMessageText(m.text)}
                     </div>
                     {m.attachments && m.attachments.length > 0 && (
                       <div className={m.from === "user" ? "mt-2 flex justify-end gap-2 flex-wrap" : "mt-2 flex justify-start gap-2 flex-wrap"}>
@@ -627,6 +758,17 @@ export function ChatPage() {
                         ))}
                       </div>
                     )}
+                    {m.attachments && m.attachments.some((file) => file.type.startsWith("image/") && file.previewUrl) && (
+                      <div className={m.from === "user" ? "mt-2 flex justify-end gap-2 flex-wrap" : "mt-2 flex justify-start gap-2 flex-wrap"}>
+                        {m.attachments
+                          .filter((file) => file.type.startsWith("image/") && file.previewUrl)
+                          .map((file) => (
+                            <div key={`${messageId}-${file.id}-preview`} className="overflow-hidden rounded-lg border border-slate-300 dark:border-slate-600 bg-white/70 dark:bg-slate-900/60">
+                              <img src={file.previewUrl} alt={file.name} className="h-24 w-24 object-cover" />
+                            </div>
+                          ))}
+                      </div>
+                    )}
                     {m.from === 'assistant' && (
                       <div className="mt-2 flex justify-start">
                         <button
@@ -634,7 +776,7 @@ export function ChatPage() {
                           onClick={() => copyMessage(m.text, messageId)}
                           className="inline-flex items-center gap-2 rounded-full border border-slate-300 dark:border-slate-600 bg-white/80 dark:bg-slate-900/70 px-3 py-1 text-xs text-slate-600 dark:text-slate-300 transition hover:bg-slate-100 dark:hover:bg-slate-800"
                         >
-                          <span>{copiedMessageId === messageId ? "Copied" : "Copy"}</span>
+                          <span>{copiedMessageId === messageId ? t("chat.copied", language) : t("chat.copy", language)}</span>
                         </button>
                       </div>
                     )}
@@ -658,7 +800,7 @@ export function ChatPage() {
               onClick={() => fileInputRef.current?.click()}
               className="px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70 text-sm"
             >
-              Attach
+              {t("chat.attach", language)}
             </button>
             <input
               id="chat-input"
@@ -667,7 +809,7 @@ export function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               type="text"
-              placeholder="Ask a question about your documents..."
+              placeholder={t("chat.askQuestion", language)}
                 className="flex-1 px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
               onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
             />
@@ -676,7 +818,7 @@ export function ChatPage() {
               disabled={loading}
               className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition disabled:opacity-60"
             >
-              {loading ? 'Sending...' : 'Send'}
+              {loading ? t("chat.sending", language) : t("chat.send", language)}
             </button>
           </div>
 
@@ -688,14 +830,21 @@ export function ChatPage() {
               {pendingAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {pendingAttachments.map((file) => (
-                    <button
-                      key={file.id}
-                      type="button"
-                      onClick={() => removePendingAttachment(file.id)}
-                      className="px-2 py-1 rounded-full text-xs border border-slate-300 dark:border-slate-600 bg-white/80 dark:bg-slate-900/70"
-                    >
-                      {file.file.name} ×
-                    </button>
+                    <div key={file.id} className="flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/80 dark:bg-slate-900/70 px-2 py-1">
+                      {file.previewUrl ? (
+                        <img src={file.previewUrl} alt={file.file.name} className="h-10 w-10 rounded object-cover" />
+                      ) : (
+                        <span className="text-xs">{file.file.type || "file"}</span>
+                      )}
+                      <span className="text-xs max-w-[220px] truncate">{file.file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removePendingAttachment(file.id)}
+                        className="text-xs rounded-full border border-slate-300 dark:border-slate-600 px-2 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        ×
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -705,7 +854,7 @@ export function ChatPage() {
           {loading && uploadProgress > 0 && uploadProgress < 100 && (
             <div className="app-panel rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-slate-600 dark:text-slate-300">Uploading attachments</span>
+                <span className="text-xs text-slate-600 dark:text-slate-300">{t("chat.uploadAttachments", language)}</span>
                 <span className="text-xs font-medium text-slate-700 dark:text-slate-200">{uploadProgress}%</span>
               </div>
               <div className="h-2 rounded bg-slate-200 dark:bg-slate-700 overflow-hidden">

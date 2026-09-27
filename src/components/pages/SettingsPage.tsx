@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOpenRouterModels, useRefreshOpenRouterModels, useOpenRouterFavorites } from "../../hooks/useOpenRouter";
 import { useOpenRouterStore } from "../../stores/openRouterStore";
-import { createCustomId, getProviderDisplayName, modelProviders, normalizeHexColor, type DevToolsMode, type ModelPreset } from "../../lib/customization";
-import { useTheme } from "../../hooks/useTheme";
+import { createCustomId, getProviderDisplayName, modelProviders, type DevToolsMode, type ModelPreset } from "../../lib/customization";
 import { useOmniRouteTest } from "../../hooks/useOmniRouteTest";
+import { t, type Language } from "../../lib/i18n";
 import type { SupportedProvider } from "../../lib/providers";
+
+interface SettingsPageProps {
+  language: Language;
+}
 
 type ApiSettings = {
   provider?: string | null;
@@ -21,13 +25,6 @@ type ModelFormState = {
   model: string;
 };
 
-type ThemeFormState = {
-  id: string;
-  name: string;
-  primary: string;
-  secondary: string;
-};
-
 const emptyModelForm: ModelFormState = {
   id: "",
   name: "",
@@ -35,15 +32,113 @@ const emptyModelForm: ModelFormState = {
   model: ""
 };
 
-const emptyThemeForm: ThemeFormState = {
-  id: "",
-  name: "",
-  primary: "#2563eb",
-  secondary: "#38bdf8"
+type ProviderSetupGuide = {
+  displayName: string;
+  apiKeyUrl: string;
+  baseUrl: string;
+  notes: string[];
 };
 
-export function SettingsPage() {
-  const { themePresets, activeThemeId, setActiveThemeId, upsertThemePreset, deleteThemePreset } = useTheme();
+const providerSetupGuides: Record<string, ProviderSetupGuide> = {
+  "OpenRouter": {
+    displayName: "OpenRouter",
+    apiKeyUrl: "https://openrouter.ai/keys",
+    baseUrl: "https://openrouter.ai/api/v1",
+    notes: [
+      "Go to OpenRouter.ai and sign up for a free account",
+      "Navigate to your API Keys page to generate a new key",
+      "Copy the key and paste it in the API Key field above",
+      "OpenRouter provides free tier access to many models",
+      "You can test connection before saving to verify the key works"
+    ]
+  },
+  "OpenAI": {
+    displayName: "OpenAI",
+    apiKeyUrl: "https://platform.openai.com/account/api-keys",
+    baseUrl: "https://api.openai.com/v1",
+    notes: [
+      "Visit OpenAI's API platform and log in with your account",
+      "Go to API Keys section and create a new secret key",
+      "Make sure you have credits or a payment method set up",
+      "Copy the key and paste it in the API Key field above",
+      "Do not share your API key with anyone"
+    ]
+  },
+  "Anthropic": {
+    displayName: "Anthropic",
+    apiKeyUrl: "https://console.anthropic.com/account/keys",
+    baseUrl: "https://api.anthropic.com/v1",
+    notes: [
+      "Go to console.anthropic.com and create an account or log in",
+      "Navigate to Settings → API Keys to create a new API key",
+      "Ensure you have added a valid payment method",
+      "Copy your API key and paste it in the API Key field above",
+      "Keep your API key confidential"
+    ]
+  },
+  "Grok": {
+    displayName: "Grok (X.AI)",
+    apiKeyUrl: "https://console.x.ai",
+    baseUrl: "https://api.x.ai/v1",
+    notes: [
+      "Visit console.x.ai and sign up for an account",
+      "Go to API Keys section to create a new API key",
+      "You'll need to set up billing to use the API",
+      "Copy the key and paste it in the API Key field above",
+      "Use the base URL: https://api.x.ai/v1"
+    ]
+  },
+  "Qwen": {
+    displayName: "Qwen (Alibaba)",
+    apiKeyUrl: "https://dashscope.console.aliyun.com/apiKey",
+    baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    notes: [
+      "Visit Alibaba Cloud DashScope console",
+      "Create an API key in the API Key management section",
+      "Set up billing with Alibaba Cloud",
+      "Copy the API key and paste it in the API Key field above",
+      "Use the international endpoint for better compatibility"
+    ]
+  },
+  "DeepSeek": {
+    displayName: "DeepSeek",
+    apiKeyUrl: "https://platform.deepseek.com/api_keys",
+    baseUrl: "https://api.deepseek.com/v1",
+    notes: [
+      "Go to platform.deepseek.com and create an account",
+      "Navigate to API Keys to generate a new API key",
+      "Add a payment method to your account",
+      "Copy the API key and paste it in the API Key field above",
+      "DeepSeek offers competitive pricing for their models"
+    ]
+  },
+  "OmniRoute": {
+    displayName: "OmniRoute",
+    apiKeyUrl: "https://omniroute.ai/keys",
+    baseUrl: "http://localhost:20128/v1",
+    notes: [
+      "Visit omniroute.ai to create an account and get API keys",
+      "Or run OmniRoute locally for development",
+      "For local setup: install OmniRoute and run it on localhost:20128",
+      "Set the base URL to point to your OmniRoute instance",
+      "OmniRoute allows you to route requests to multiple providers"
+    ]
+  },
+  "Local Model": {
+    displayName: "Local Model",
+    apiKeyUrl: "",
+    baseUrl: "http://localhost:11434/v1",
+    notes: [
+      "Run Ollama or another OpenAI-compatible local server",
+      "Popular option: Ollama (https://ollama.ai)",
+      "Start Ollama and verify it's running on localhost:11434",
+      "Set the base URL to your local endpoint",
+      "API key is optional for local models"
+    ]
+  }
+};
+
+export function SettingsPage({ language }: SettingsPageProps) {
   const { result: connectionResult, isLoading: isTesting, testConnection, reset: resetConnectionTest } = useOmniRouteTest();
 
   const [provider, setProvider] = useState<string>("Anthropic");
@@ -52,14 +147,12 @@ export function SettingsPage() {
   const [models, setModels] = useState<ModelPreset[]>([]);
   const [activeModelId, setActiveModelId] = useState<string>("");
   const [modelForm, setModelForm] = useState<ModelFormState>(emptyModelForm);
-  const [themeForm, setThemeForm] = useState<ThemeFormState>(emptyThemeForm);
   const [devToolsMode, setDevToolsMode] = useState<DevToolsMode>("off");
   const [status, setStatus] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [freeModelDialog, setFreeModelDialog] = useState<{ show: boolean; model?: any }>({ show: false });
   const [selectedFreeModelsForBatch, setSelectedFreeModelsForBatch] = useState<Set<string>>(new Set());
-  const [showThemePicker, setShowThemePicker] = useState<boolean>(false);
-  const [pickerMode, setPickerMode] = useState<'tiles' | 'create'>('tiles');
+  const [expandedProviderGuides, setExpandedProviderGuides] = useState<Set<string>>(new Set());
 
   const activeModel = useMemo(() => models.find((item) => item.id === activeModelId) ?? models[0] ?? null, [activeModelId, models]);
   const providerNeedsBaseUrl = ["OmniRoute", "Local Model", "Grok", "Qwen", "DeepSeek", "OpenRouter"].includes(provider);
@@ -87,7 +180,7 @@ export function SettingsPage() {
   const freeModels = (((openRouterModelsData as any)?.models) ?? []).filter((m: any) => Boolean(m.free));
 
   useEffect(() => {
-    fetch("http://localhost:5000/api/settings")
+    fetch("/api/settings")
       .then((r) => r.json())
       .then((data: { success?: boolean; settings?: ApiSettings }) => {
         if (data?.success && data?.settings) {
@@ -146,6 +239,18 @@ export function SettingsPage() {
     }
   }
 
+  function toggleProviderGuide(providerName: string) {
+    setExpandedProviderGuides((prev) => {
+      const next = new Set(prev);
+      if (next.has(providerName)) {
+        next.delete(providerName);
+      } else {
+        next.add(providerName);
+      }
+      return next;
+    });
+  }
+
   async function persistSettings(nextModels = models, nextActiveModelId = activeModelId, includeApiConfig = true) {
     const selectedModel = nextModels.find((item) => item.id === nextActiveModelId) ?? nextModels[0] ?? null;
     const payload: Record<string, unknown> = {
@@ -160,7 +265,7 @@ export function SettingsPage() {
       payload.omniRouteBaseUrl = omniRouteBaseUrl;
     }
 
-    const res = await fetch("http://localhost:5000/api/settings", {
+    const res = await fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -178,21 +283,21 @@ export function SettingsPage() {
     setStatusMessage("");
     try {
       const result = await persistSettings(models, activeModelId, true);
-      showStatus("saved", result.message ?? "Settings saved");
+      showStatus("saved", result.message ?? t("settings.settingsSaved", language));
       setApiKey("");
     } catch (error) {
-      showStatus("error", error instanceof Error ? error.message : "Network error while saving settings");
+      showStatus("error", error instanceof Error ? error.message : t("settings.errorSavingSettings", language));
     }
   }
 
   async function handleTestProvider() {
     if (providerNeedsBaseUrl && !omniRouteBaseUrl) {
-      showStatus("error", "Base URL is required to test connection");
+      showStatus("error", t("settings.baseUrlRequired", language));
       return;
     }
 
     if (providerRequiresApiKey && !apiKey) {
-      showStatus("error", "API Key is required to test connection");
+      showStatus("error", t("settings.apiKeyRequired", language));
       return;
     }
 
@@ -207,9 +312,9 @@ export function SettingsPage() {
   async function handleRefreshOpenRouterModels() {
     try {
       await refreshOpenRouter.mutateAsync({ baseUrl: omniRouteBaseUrl });
-      showStatus('saved', 'OpenRouter models refreshed');
+      showStatus('saved', t('settings.openRouterModelsRefreshed', language));
     } catch (err) {
-      showStatus('error', err instanceof Error ? err.message : 'Refresh failed');
+      showStatus('error', err instanceof Error ? err.message : t('settings.refreshFailed', language));
     }
   }
 
@@ -219,9 +324,9 @@ export function SettingsPage() {
     try {
       await openRouterFavsQuery.save(next);
       setOpenRouterFavorites(next);
-      showStatus('saved', 'Favorite saved');
+      showStatus('saved', t('settings.favoriteSaved', language));
     } catch (err) {
-      showStatus('error', err instanceof Error ? err.message : 'Save favorites failed');
+      showStatus('error', err instanceof Error ? err.message : t('settings.saveFavoritesFailed', language));
     }
   }
 
@@ -236,7 +341,7 @@ export function SettingsPage() {
     
     // Validate that model ID looks reasonable (not placeholder text)
     if (!modelId || /^(free|no|none|select|choose|placeholder)/i.test(modelId)) {
-      showStatus('error', 'Invalid model identifier. Please select a valid free model.');
+      showStatus('error', t('settings.invalidModel', language));
       setFreeModelDialog({ show: false });
       return;
     }
@@ -247,9 +352,9 @@ export function SettingsPage() {
     setActiveModelId(preset.id);
     try {
       await persistSettings(nextModels, preset.id, false);
-      showStatus('saved', 'Free model preset saved');
+      showStatus('saved', t('settings.freePresetSaved', language));
     } catch (err) {
-      showStatus('error', err instanceof Error ? err.message : 'Error saving model');
+      showStatus('error', err instanceof Error ? err.message : t('settings.errorSavingModel', language));
     }
     setFreeModelDialog({ show: false });
   }
@@ -266,7 +371,7 @@ export function SettingsPage() {
 
   async function saveBatchFreeModels() {
     if (selectedFreeModelsForBatch.size === 0) {
-      showStatus('error', 'Select at least one model');
+      showStatus('error', t("settings.selectAtLeastOne", language));
       return;
     }
 
@@ -279,7 +384,7 @@ export function SettingsPage() {
     });
     
     if (invalidModels.length > 0) {
-      showStatus('error', `Cannot save ${invalidModels.length} model(s) with invalid identifiers. Please refresh the models list.`);
+      showStatus('error', t('settings.cannotSaveInvalidModels', language).replace('{count}', invalidModels.length.toString()));
       return;
     }
 
@@ -297,9 +402,9 @@ export function SettingsPage() {
 
     try {
       await persistSettings(nextModels, newPresets[0]?.id || activeModelId, false);
-      showStatus('saved', `${newPresets.length} free model presets saved`);
+      showStatus("saved", `${newPresets.length} ` + t("settings.freeModelsLabel", language));
     } catch (err) {
-      showStatus('error', err instanceof Error ? err.message : 'Error saving models');
+      showStatus("error", err instanceof Error ? err.message : t("settings.errorSavingModel", language));
     }
   }
 
@@ -311,7 +416,7 @@ export function SettingsPage() {
     const name = modelForm.name.trim();
     const modelValue = modelForm.model.trim();
     if (!name || !modelValue) {
-      showStatus("error", "Model name and value are required");
+      showStatus("error", t("settings.modelNameAndValueRequired", language));
       return;
     }
 
@@ -333,10 +438,10 @@ export function SettingsPage() {
     try {
       setStatus("saving");
       await persistSettings(nextModels, nextActiveId, false);
-      showStatus("saved", modelForm.id ? "Model updated" : "Model added");
+      showStatus("saved", modelForm.id ? t("settings.modelUpdated", language) : t("settings.modelAdded", language));
       resetModelForm();
     } catch (error) {
-      showStatus("error", error instanceof Error ? error.message : "Error saving model");
+      showStatus("error", error instanceof Error ? error.message : t("settings.errorSavingModel", language));
     }
   }
 
@@ -348,12 +453,12 @@ export function SettingsPage() {
     try {
       setStatus("saving");
       await persistSettings(nextModels, nextActiveId, false);
-      showStatus("saved", "Model deleted");
+      showStatus("saved", t("settings.modelDeleted", language));
       if (activeModelId === modelId) {
         resetModelForm();
       }
     } catch (error) {
-      showStatus("error", error instanceof Error ? error.message : "Error deleting model");
+      showStatus("error", error instanceof Error ? error.message : t("settings.errorDeletingModel", language));
     }
   }
 
@@ -361,48 +466,20 @@ export function SettingsPage() {
     setModelForm({ ...modelItem });
   }
 
-  function handleAddTheme() {
-    const saved = upsertThemePreset({
-      id: themeForm.id || undefined,
-      name: themeForm.name,
-      primary: normalizeHexColor(themeForm.primary),
-      secondary: normalizeHexColor(themeForm.secondary)
-    });
-    setThemeForm(emptyThemeForm);
-    setActiveThemeId(saved.id);
-    showStatus("saved", themeForm.id ? "Theme updated" : "Theme saved");
-  }
-
-  function handleEditTheme(themeId: string) {
-    const item = themePresets.find((preset) => preset.id === themeId);
-    if (!item) return;
-    setThemeForm(item);
-    setPickerMode('create');
-  }
-
-  function handleDeleteTheme(themeId: string) {
-    try {
-      deleteThemePreset(themeId);
-      showStatus('saved', 'Theme deleted');
-    } catch (err) {
-      showStatus('error', err instanceof Error ? err.message : 'Error deleting theme');
-    }
-  }
-
   return (
     <div className="py-8 space-y-6">
       <div className="app-panel rounded-2xl p-8">
-        <h2 className="text-3xl font-bold mb-2 app-accent-text">Settings</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Manage models, color themes, and debugging tools.</p>
+        <h2 className="text-3xl font-bold mb-2 app-accent-text">{t("settings.title", language)}</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{t("settings.description", language)}</p>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="app-panel rounded-2xl p-6 space-y-6">
           <div>
-            <h3 className="font-semibold mb-4">API Configuration</h3>
+            <h3 className="font-semibold mb-4">{t("settings.apiConfig", language)}</h3>
             <div className="space-y-4">
               <div>
-                <label htmlFor="llm-provider" className="block text-sm font-medium mb-2">LLM Provider</label>
+                <label htmlFor="llm-provider" className="block text-sm font-medium mb-2">{t("settings.provider", language)}</label>
                 <select
                   id="llm-provider"
                   name="llm-provider"
@@ -418,20 +495,20 @@ export function SettingsPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="api-key" className="block text-sm font-medium mb-2">API Key</label>
+                <label htmlFor="api-key" className="block text-sm font-medium mb-2">{t("settings.apiKey", language)}</label>
                 <input
                   id="api-key"
                   name="api-key"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   type="password"
-                  placeholder={provider === "Local Model" ? "Optional for local endpoints" : "Enter your API key"}
+                  placeholder={provider === "Local Model" ? t("settings.optionalLocal", language) : t("settings.enterApiKey", language)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70 dark:text-white"
                 />
               </div>
               {providerNeedsBaseUrl && (
                 <div>
-                  <label htmlFor="omniroute-base-url" className="block text-sm font-medium mb-2">Provider Base URL</label>
+                  <label htmlFor="omniroute-base-url" className="block text-sm font-medium mb-2">{t("settings.baseUrl", language)}</label>
                   <input
                     id="omniroute-base-url"
                     name="omniroute-base-url"
@@ -445,7 +522,7 @@ export function SettingsPage() {
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70 dark:text-white"
                   />
                   <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    Use the exact API base URL for OmniRoute, a local OpenAI-compatible endpoint, or a direct OpenAI-compatible provider. Examples: {providerBaseUrlExamples[provider] ?? "https://api.example.com/v1"}.
+                    {t("settings.baseUrlHelp", language).replace("{example}", providerBaseUrlExamples[provider] ?? "https://api.example.com/v1")}
                   </p>
                 </div>
               )}
@@ -454,14 +531,14 @@ export function SettingsPage() {
                   onClick={handleSaveGeneral}
                   className="flex-1 px-4 py-2 app-accent-gradient text-white rounded-lg font-semibold transition hover:opacity-90"
                 >
-                  Save API Settings
+                  {t("settings.saveModel", language)}
                 </button>
                 <button
                   onClick={handleTestProvider}
                   disabled={isTesting || (providerNeedsBaseUrl && !omniRouteBaseUrl) || (providerRequiresApiKey && !apiKey)}
                   className="flex-1 px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-lg font-semibold transition hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isTesting ? 'Testing...' : 'Test Connection'}
+                  {isTesting ? t("settings.testing", language) : t("settings.test", language)}
                 </button>
               </div>
               {connectionResult.status !== 'idle' && (
@@ -485,15 +562,15 @@ export function SettingsPage() {
             {provider === 'OpenRouter' && (
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-semibold">OpenRouter — Free Models</h4>
+                  <h4 className="font-semibold">{t("settings.freeModels", language)}</h4>
                   <div className="flex items-center gap-2">
-                    <button onClick={handleRefreshOpenRouterModels} className="px-3 py-1 rounded-lg border text-xs hover:bg-slate-100 dark:hover:bg-slate-700">Refresh</button>
+                    <button onClick={handleRefreshOpenRouterModels} className="px-3 py-1 rounded-lg border text-xs hover:bg-slate-100 dark:hover:bg-slate-700">{t("settings.refresh", language)}</button>
                   </div>
                 </div>
-                <div className="text-sm text-slate-500 dark:text-slate-400 mb-3">Select and save multiple free models as presets. Note: free models may have usage limits and slower response times.</div>
+                <div className="text-sm text-slate-500 dark:text-slate-400 mb-3">{t("settings.freeModelsDesc", language)}</div>
                 <div className="grid grid-cols-1 gap-3 mb-4">
-                  {isLoadingOpenRouterModels && <div className="text-sm text-slate-500">Loading models...</div>}
-                  {!isLoadingOpenRouterModels && freeModels.length === 0 && <div className="text-sm text-slate-500">No free models found.</div>}
+                  {isLoadingOpenRouterModels && <div className="text-sm text-slate-500">{t("settings.loadingModels", language)}</div>}
+                  {!isLoadingOpenRouterModels && freeModels.length === 0 && <div className="text-sm text-slate-500">{t("settings.noFreeModels", language)}</div>}
                   {freeModels.map((m: any) => {
                     const isSelected = selectedFreeModelsForBatch.has(m.id || m.name);
                     return (
@@ -507,11 +584,11 @@ export function SettingsPage() {
                           />
                           <div>
                             <div className="font-medium">{m.name ?? m.id}</div>
-                            <div className="text-xs text-slate-500">{m.description ?? ''} <span className="ml-2 inline-block px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 rounded text-xs">Free</span></div>
+                            <div className="text-xs text-slate-500">{m.description ?? ''} <span className="ml-2 inline-block px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 rounded text-xs">{t("settings.freeBadge", language)}</span></div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <button onClick={() => promptFreeModelWarning(m)} className="px-3 py-1 rounded-full bg-blue-600 text-white text-xs hover:bg-blue-700">Add</button>
+                          <button onClick={() => promptFreeModelWarning(m)} className="px-3 py-1 rounded-full bg-blue-600 text-white text-xs hover:bg-blue-700">{t("settings.add", language)}</button>
                           <button onClick={() => saveFavorite(m.id || m.name)} className="px-3 py-1 rounded-full border text-xs hover:bg-slate-100 dark:hover:bg-slate-700">♡</button>
                         </div>
                       </div>
@@ -525,14 +602,16 @@ export function SettingsPage() {
                       disabled={selectedFreeModelsForBatch.size === 0}
                       className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
                     >
-                      Save {selectedFreeModelsForBatch.size > 0 ? `${selectedFreeModelsForBatch.size} Model${selectedFreeModelsForBatch.size !== 1 ? 's' : ''}` : 'Models'}
+                      {selectedFreeModelsForBatch.size > 0
+                        ? t("settings.saveModelsCount", language).replace("{count}", selectedFreeModelsForBatch.size.toString())
+                        : t("settings.saveModels", language)}
                     </button>
                     {selectedFreeModelsForBatch.size > 0 && (
                       <button
                         onClick={() => setSelectedFreeModelsForBatch(new Set())}
                         className="px-4 py-2 rounded-lg border text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
                       >
-                        Clear
+                        {t("settings.clear", language)}
                       </button>
                     )}
                   </div>
@@ -540,13 +619,13 @@ export function SettingsPage() {
               </div>
             )}
             <div className="flex items-center justify-between gap-3 mb-4">
-              <h3 className="font-semibold">Saved Models</h3>
-              <div className="text-xs text-slate-500 dark:text-slate-400">{models.length} configured</div>
+              <h3 className="font-semibold">{t("settings.savedModels", language)}</h3>
+              <div className="text-xs text-slate-500 dark:text-slate-400">{models.length} {t("settings.configured", language)}</div>
             </div>
 
             <div className="grid grid-cols-1 gap-3 mb-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Model Name</label>
+                <label className="block text-sm font-medium mb-2">{t("settings.modelName", language)}</label>
                 <input
                   value={modelForm.name}
                   onChange={(e) => setModelForm((current) => ({ ...current, name: e.target.value }))}
@@ -555,7 +634,7 @@ export function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2">Model Provider</label>
+                <label className="block text-sm font-medium mb-2">{t("settings.modelProvider", language)}</label>
                 <select
                   value={modelForm.provider}
                   onChange={(e) => setModelForm((current) => ({ ...current, provider: e.target.value as ModelPreset["provider"] }))}
@@ -565,7 +644,7 @@ export function SettingsPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2">Model Value</label>
+                <label className="block text-sm font-medium mb-2">{t("settings.modelValue", language)}</label>
                 <input
                   value={modelForm.model}
                   onChange={(e) => setModelForm((current) => ({ ...current, model: e.target.value }))}
@@ -577,17 +656,17 @@ export function SettingsPage() {
 
             <div className="flex items-center gap-3 mb-4">
               <button onClick={handleSaveModel} className="px-4 py-2 app-accent-gradient text-white rounded-lg font-semibold transition">
-                {modelForm.id ? "Update Model" : "Add Model"}
+                {modelForm.id ? t("settings.updateModel", language) : t("settings.addModel", language)}
               </button>
               {modelForm.id && (
                 <button onClick={resetModelForm} className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-sm">
-                  Cancel Edit
+                  {t("settings.cancelEdit", language)}
                 </button>
               )}
             </div>
 
             <div className="space-y-3">
-              {models.length === 0 && <div className="text-sm text-slate-500 dark:text-slate-400">No saved models yet. Add one above to make it available in Chat.</div>}
+              {models.length === 0 && <div className="text-sm text-slate-500 dark:text-slate-400">{t("settings.noSavedModels", language)}</div>}
               {models.map((item) => (
                 <div key={item.id} className={`rounded-xl p-4 border ${item.id === activeModelId ? "border-blue-500" : "border-slate-200 dark:border-slate-700"} bg-white/60 dark:bg-slate-900/30`}>
                   <div className="flex items-start justify-between gap-4">
@@ -596,13 +675,13 @@ export function SettingsPage() {
                       <div className="text-xs text-slate-500 dark:text-slate-400">{getProviderDisplayName(item.provider)} · {item.model}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => setActiveModelId(item.id)} className="px-3 py-1 text-xs rounded-full bg-slate-200 dark:bg-slate-700">Use</button>
-                      <button onClick={() => handleEditModel(item)} className="px-3 py-1 text-xs rounded-full bg-blue-600 text-white" title="Edit">
+                      <button onClick={() => setActiveModelId(item.id)} className="px-3 py-1 text-xs rounded-full bg-slate-200 dark:bg-slate-700">{t("settings.use", language)}</button>
+                      <button onClick={() => handleEditModel(item)} className="px-3 py-1 text-xs rounded-full bg-blue-600 text-white" title={t("settings.edit", language)}>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
                           <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
                         </svg>
                       </button>
-                      <button onClick={() => handleDeleteModel(item.id)} className="px-3 py-1 text-xs rounded-full bg-red-600 text-white" title="Delete">
+                      <button onClick={() => handleDeleteModel(item.id)} className="px-3 py-1 text-xs rounded-full bg-red-600 text-white" title={t("settings.delete", language)}>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
                           <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
                         </svg>
@@ -614,18 +693,18 @@ export function SettingsPage() {
             </div>
 
             <div className="mt-4 flex items-center gap-3">
-              <label className="text-sm font-medium">Active Model</label>
+              <label className="text-sm font-medium">{t("settings.activeModel", language)}</label>
               <select
                 value={activeModelId}
                 onChange={(e) => setActiveModelId(e.target.value)}
                 className="flex-1 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70 dark:text-white"
               >
-                <option value="">Select a saved model</option>
+                <option value="">{t("settings.selectSavedModel", language)}</option>
                 {models.map((item) => (
                   <option key={item.id} value={item.id}>{item.name} · {getProviderDisplayName(item.provider)}</option>
                 ))}
               </select>
-              <button onClick={() => persistSettings(models, activeModelId)} className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-sm" title="Save Active">
+              <button onClick={() => persistSettings(models, activeModelId)} className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-sm" title={t("settings.saveActive", language)}>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden>
                   <path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4zM12 19a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-11H6V5h9v3z" />
                 </svg>
@@ -635,46 +714,106 @@ export function SettingsPage() {
 
           <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
             <div className="flex items-center justify-between gap-3 mb-4">
-              <h3 className="font-semibold">DevTools Mode</h3>
-              <span className="text-xs text-slate-500 dark:text-slate-400">Applies immediately in Electron</span>
+              <h3 className="font-semibold">{t("settings.devTools", language)}</h3>
+              <span className="text-xs text-slate-500 dark:text-slate-400">{t("settings.applesImmediately", language)}</span>
             </div>
             <select
               value={devToolsMode}
               onChange={(e) => setDevToolsMode(e.target.value as DevToolsMode)}
               className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70 dark:text-white"
             >
-              <option value="off">Off</option>
-              <option value="detach">Detached window</option>
-              <option value="right">Docked to right</option>
+              <option value="off">{t("settings.devToolsOff", language)}</option>
+              <option value="detach">{t("settings.devToolsDetach", language)}</option>
+              <option value="right">{t("settings.devToolsRight", language)}</option>
             </select>
           </div>
         </div>
 
         <div className="space-y-6">
           <div className="app-panel rounded-2xl p-6">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <h3 className="font-semibold">Theme Presets</h3>
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-slate-500 dark:text-slate-400">Active: {themePresets.find((item) => item.id === activeThemeId)?.name ?? "Default"}</div>
-                <button onClick={() => setShowThemePicker(true)} className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-sm" title="Open theme picker">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden>
-                    <path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 10v-8h8v8h-8z" />
-                  </svg>
-                </button>
-              </div>
+            <h3 className="font-semibold mb-4">{t("settings.setupGuide", language)}</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{t("settings.setupGuideDesc", language)}</p>
+            <div className="space-y-2">
+              {Object.entries(providerSetupGuides).map(([key, guide]) => {
+                const isExpanded = expandedProviderGuides.has(key);
+                return (
+                  <div
+                    key={key}
+                    className="rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-800/30 overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleProviderGuide(key)}
+                      className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-100 dark:hover:bg-slate-800/50 transition"
+                    >
+                      <span className="font-medium text-sm">
+                        {t(`settings.provider.${key.toLowerCase().replace(/\s+/g, '')}`, language) || guide.displayName}
+                      </span>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        width="20"
+                        height="20"
+                        fill="currentColor"
+                        className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        aria-hidden
+                      >
+                        <path d="M7 10l5 5 5-5z" />
+                      </svg>
+                    </button>
+                    {isExpanded && (
+                      <div className="px-4 py-3 border-t border-slate-300 dark:border-slate-600 bg-white/50 dark:bg-slate-900/30 space-y-3">
+                        {guide.apiKeyUrl && (
+                          <div>
+                            <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t("settings.getApiKey", language)}</p>
+                            <a
+                              href={guide.apiKeyUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 dark:text-blue-400 hover:underline break-all"
+                            >
+                              {guide.apiKeyUrl}
+                            </a>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">{t("settings.baseUrlLabel", language)}</p>
+                          <code className="text-xs bg-slate-200 dark:bg-slate-700 px-2 py-1 rounded block break-all">
+                            {guide.baseUrl}
+                          </code>
+                        </div>
+                        {guide.notes.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2">{t("settings.setupSteps", language)}</p>
+                            <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1 list-decimal list-inside">
+                              {(() => {
+                                const translatedGuide = t(`settings.guide.${key.toLowerCase().replace(/\s+/g, '')}`, language);
+                                const notes = translatedGuide && translatedGuide !== `settings.guide.${key.toLowerCase().replace(/\s+/g, '')}` 
+                                  ? translatedGuide.split(' | ')
+                                  : guide.notes;
+                                return notes.map((note, idx) => (
+                                  <li key={idx}>{note.trim()}</li>
+                                ));
+                              })()}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-
-            <div className="text-sm text-slate-500 dark:text-slate-400">Manage themes via the Theme Picker (open it with the button on the right).</div>
           </div>
 
           <div className="app-panel rounded-2xl p-6">
-            <h3 className="font-semibold mb-4">About</h3>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Super Chat v1.0.0</p>
-            <p className="text-sm text-slate-600 dark:text-slate-400">Enterprise retrieval-augmented generation system built with React, Express, and Electron.</p>
+            <h3 className="font-semibold mb-4">{t("settings.about", language)}</h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">{t("settings.aboutText", language)}</p>
+            <p className="text-sm text-slate-600 dark:text-slate-400">{t("settings.aboutDesc", language)}</p>
             <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
-              {status === 'saving' && <span>Saving...</span>}
-              {status === 'saved' && <span className="text-green-600">{statusMessage || 'Saved'}</span>}
-              {status === 'error' && <span className="text-red-600">{statusMessage || 'Error saving'}</span>}
+              {status === 'saving' && <span>{t("settings.saving", language)}</span>}
+              {status === 'saved' && <span className="text-green-600">{statusMessage || t("settings.saved", language)}</span>}
+              {status === 'error' && <span className="text-red-600">{statusMessage || t("settings.error", language)}</span>}
             </div>
           </div>
         </div>
@@ -683,17 +822,17 @@ export function SettingsPage() {
       {freeModelDialog.show && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-md w-full mx-4 shadow-lg">
-            <h3 className="text-lg font-semibold mb-2">Free Model Warning</h3>
+            <h3 className="text-lg font-semibold mb-2">{t("settings.freeWarning", language)}</h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-              You are about to add <strong>{freeModelDialog.model?.name ?? freeModelDialog.model?.id}</strong> as a preset.
+              {t("settings.aboutToAdd", language).replace("{model}", freeModelDialog.model?.name ?? freeModelDialog.model?.id)}
             </p>
             <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-3 mb-4">
               <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                <strong>Free models may have:</strong>
+                <strong>{t("settings.freeModelsMayHave", language)}</strong>
                 <ul className="mt-2 ml-4 list-disc space-y-1">
-                  <li>Rate limits and usage caps</li>
-                  <li>Slower response times</li>
-                  <li>Limited availability</li>
+                  <li>{t("settings.rateLimits", language)}</li>
+                  <li>{t("settings.slowerResponse", language)}</li>
+                  <li>{t("settings.limitedAvailability", language)}</li>
                 </ul>
               </p>
             </div>
@@ -702,149 +841,15 @@ export function SettingsPage() {
                 onClick={() => setFreeModelDialog({ show: false })}
                 className="flex-1 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
               >
-                Cancel
+                {t("chat.cancel", language)}
               </button>
               <button
                 onClick={() => confirmAddFreeModel()}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 font-medium"
               >
-                Confirm & Add
+                {t("settings.confirmAddFreeModel", language)}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showThemePicker && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-3xl w-full mx-4 shadow-lg">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Theme Picker</h3>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setShowThemePicker(false)} className="px-3 py-1 rounded border border-slate-300 dark:border-slate-700" title="Close">Close</button>
-              </div>
-            </div>
-
-            {pickerMode === 'tiles' ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                <div
-                  onClick={() => setPickerMode('create')}
-                  role="button"
-                  tabIndex={0}
-                  className={`rounded-lg p-4 text-center border border-dashed border-slate-300 dark:border-slate-700 bg-white/80 dark:bg-slate-900/30 hover:scale-105 transition-transform duration-200 ease-in-out flex items-center justify-center`}
-                  title="Create custom theme"
-                >
-                  <div className="text-3xl font-bold text-slate-400">+</div>
-                </div>
-
-                  {themePresets.map((item) => (
-                    <div key={item.id} className={`relative rounded-lg p-4 text-left border ${item.id === activeThemeId ? 'border-blue-500' : 'border-slate-200 dark:border-slate-700'} bg-white/80 dark:bg-slate-900/30 hover:scale-105 transition-transform duration-200 ease-in-out flex flex-col justify-between`}>
-                      <div
-                        onClick={() => {
-                          setActiveThemeId(item.id);
-                          setShowThemePicker(false);
-                        }}
-                        role="button"
-                        tabIndex={0}
-                      >
-                        <div className="flex items-center justify-between mb-3 min-h-[28px]">
-                          <div className="font-medium text-sm">{item.name}</div>
-                          {item.id === activeThemeId && <div className="text-xs text-blue-600">Active</div>}
-                        </div>
-                        <div className="flex overflow-hidden rounded-lg h-8">
-                          <div className="flex-1" style={{ background: item.primary }} />
-                          <div className="flex-1" style={{ background: item.secondary }} />
-                        </div>
-                      </div>
-
-                      <div className="absolute top-3 right-3 flex items-center gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditTheme(item.id);
-                        }}
-                        title="Edit"
-                        className="p-1 rounded bg-white/90 dark:bg-slate-800/60"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
-                          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteTheme(item.id); }}
-                        title="Delete"
-                        className="p-1 rounded bg-white/90 dark:bg-slate-800/60"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
-                          <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-                  <input
-                    value={themeForm.name}
-                    onChange={(e) => setThemeForm((current) => ({ ...current, name: e.target.value }))}
-                    placeholder="Theme name"
-                    className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70 dark:text-white"
-                  />
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="color"
-                      value={themeForm.primary}
-                      onChange={(e) => setThemeForm((current) => ({ ...current, primary: e.target.value }))}
-                      className="h-11 w-14 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70"
-                    />
-                    <input
-                      value={themeForm.primary}
-                      onChange={(e) => setThemeForm((current) => ({ ...current, primary: e.target.value }))}
-                      placeholder="#111111"
-                      className="flex-1 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70 dark:text-white"
-                    />
-                  </div>
-                  <div className="sm:col-span-2 flex gap-2 items-center">
-                    <input
-                      type="color"
-                      value={themeForm.secondary}
-                      onChange={(e) => setThemeForm((current) => ({ ...current, secondary: e.target.value }))}
-                      className="h-11 w-14 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70"
-                    />
-                    <input
-                      value={themeForm.secondary}
-                      onChange={(e) => setThemeForm((current) => ({ ...current, secondary: e.target.value }))}
-                      placeholder="#F4EDE4"
-                      className="flex-1 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900/70 dark:text-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 mb-4">
-                  <button
-                    onClick={() => {
-                      handleAddTheme();
-                      setPickerMode('tiles');
-                      setShowThemePicker(false);
-                    }}
-                    className="px-4 py-2 app-accent-gradient text-white rounded-lg font-semibold transition"
-                  >
-                    Save Theme
-                  </button>
-                  <button
-                    onClick={() => {
-                      setThemeForm(emptyThemeForm);
-                      setPickerMode('tiles');
-                    }}
-                    className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}

@@ -72,7 +72,7 @@
 POST http://localhost:20128/v1/chat/completions
 Headers:
   Content-Type: application/json
-  Authorization: Bearer sk-37fdd8580c7a7f44-77b6ac-621c65d5
+  Authorization: Bearer <OMNIROUTE_API_KEY>
 ```
 
 ### 2. Комплексная обработка ошибок
@@ -102,7 +102,7 @@ Headers:
 
 ```
 Base URL: http://localhost:20128/v1
-API Key: sk-37fdd8580c7a7f44-77b6ac-621c65d5
+API Key: <OMNIROUTE_API_KEY>
 API Type: OpenAI Compatible
 ```
 
@@ -117,7 +117,7 @@ API Type: OpenAI Compatible
 ## 📁 Структура файлов
 
 ```
-e:\AI_assist\
+project-root/
 ├── src/
 │   ├── lib/
 │   │   └── providers.ts (NEW)           ← Основная интеграция
@@ -145,7 +145,7 @@ omniroute
 
 ### Шаг 3: Ввести параметры
 - **Base URL:** `http://localhost:20128/v1`
-- **API Key:** `sk-37fdd8580c7a7f44-77b6ac-621c65d5`
+- **API Key:** `<OMNIROUTE_API_KEY>`
 
 ### Шаг 4: Тестировать
 - Нажать **"Test Connection"**
@@ -219,5 +219,5 @@ Response ← OpenAI-compatible format
 **Начните прямо сейчас с параметрами:**
 ```
 Base URL: http://localhost:20128/v1
-API Key: sk-37fdd8580c7a7f44-77b6ac-621c65d5
+API Key: <OMNIROUTE_API_KEY>
 ```

@@ -2,14 +2,17 @@ import { useState, useEffect } from "react";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { ChatPage } from "./components/pages/ChatPage";
+import { DocumentOCRPage } from "./components/pages/DocumentOCRPage";
 import { RAGManagementPage } from "./components/pages/RAGManagementPage";
 import { SettingsPage } from "./components/pages/SettingsPage";
 import { useTheme } from "./hooks/useTheme";
+import { useLanguage } from "./hooks/useLanguage";
 
-type Page = "chat" | "rag-management" | "settings";
+type Page = "chat" | "document-ocr" | "rag-management" | "settings";
 
 export default function App() {
   const { theme } = useTheme();
+  const { language } = useLanguage();
   const [currentPage, setCurrentPage] = useState<Page>("chat");
 
   useEffect(() => {
@@ -25,12 +28,14 @@ export default function App() {
 
   const renderContent = () => {
     switch (currentPage) {
+      case "document-ocr":
+        return <DocumentOCRPage language={language} />;
       case "rag-management":
-        return <RAGManagementPage />;
+        return <RAGManagementPage language={language} />;
       case "settings":
-        return <SettingsPage />;
+        return <SettingsPage language={language} />;
       default:
-        return <ChatPage />;
+        return <ChatPage language={language} />;
     }
   };
 

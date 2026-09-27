@@ -17,12 +17,18 @@ export interface Provider {
 
 export interface OpenAIChatRequest {
   model: string;
-  messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+  messages: Array<{ role: "user" | "assistant" | "system"; content: OpenAIMessageContent }>;
   max_tokens?: number;
   temperature?: number;
   top_p?: number;
   stream?: boolean;
 }
+
+export type OpenAIMessageContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } };
+
+export type OpenAIMessageContent = string | OpenAIMessageContentPart[];
 
 export interface OpenAIChatResponse {
   choices?: Array<{
@@ -177,8 +183,15 @@ export async function sendOpenAICompatibleMessage(
     
     // Map UI-friendly labels to sensible defaults for OpenRouter
     if (isOpenRouter) {
-      const defaultOpenRouterModel = process.env.OPENROUTER_MODEL || "openrouter/gpt-4o-mini";
-      if (!incomingModel || /^free/i.test(incomingModel) || /free models?/i.test(incomingModel) || /^(no|none|select|choose)/i.test(incomingModel)) {
+      const defaultOpenRouterModel = process.env.OPENROUTER_MODEL || "openai/gpt-chat-latest";
+      // If incomingModel looks like a UI label or a local model name (e.g. "mistral-7b", "llama-2-70b-chat")
+      // map it to a known OpenRouter model id. OpenRouter model ids generally contain a provider prefix
+      // (for example "openrouter/gpt-4o-mini"). If we get a plain token without a slash, fallback to default.
+      const looksLikeOpenRouterId = typeof incomingModel === 'string' && incomingModel.includes('/');
+      const isPlaceholder = !incomingModel || /^free/i.test(incomingModel) || /free models?/i.test(incomingModel) || /^(no|none|select|choose|placeholder)/i.test(incomingModel);
+
+      if (isPlaceholder || !looksLikeOpenRouterId) {
+        console.warn('[PROVIDERS] OpenRouter: mapping incoming model', incomingModel, '->', defaultOpenRouterModel);
         (bodyPayload as any).model = defaultOpenRouterModel;
       } else {
         (bodyPayload as any).model = incomingModel;
@@ -276,7 +289,12 @@ export async function sendAnthropicMessage(
         .filter((message) => message.role !== "system")
         .map((message) => ({
           role: message.role,
-          content: message.content
+          content: typeof message.content === "string"
+            ? message.content
+            : message.content
+              .filter((part) => part.type === "text")
+              .map((part) => part.text)
+              .join("\n")
         }))
     })
   });
@@ -329,7 +347,7 @@ export async function testProviderConnection(
         model = "claude-3-5-sonnet-latest";
         break;
       case "OpenRouter":
-        model = "openrouter/gpt-4o-mini";
+        model = "openai/gpt-chat-latest";
         break;
       case "DeepSeek":
         model = "deepseek-chat";
@@ -504,7 +522,7 @@ function categorizeProviderConnectionError(
     return {
       status: "error",
       message: "Invalid model identifier",
-      details: "The model id appears invalid for this provider. For OpenRouter try a model like 'openrouter/gpt-4o-mini' or set OPENROUTER_MODEL in env."
+      details: "The model id appears invalid for this provider. For OpenRouter try a model like 'openai/gpt-chat-latest' or set OPENROUTER_MODEL in env."
     };
   }
 

@@ -9,7 +9,7 @@ import { sendMessage } from "@/lib/providers";
 
 const response = await sendMessage(
   "http://localhost:20128/v1",
-  "sk-37fdd8580c7a7f44-77b6ac-621c65d5",
+  "<OMNIROUTE_API_KEY>",
   {
     model: "gpt-3.5-turbo",
     messages: [
@@ -29,7 +29,7 @@ import { testOmniRouteConnection } from "@/lib/providers";
 
 const result = await testOmniRouteConnection(
   "http://localhost:20128/v1",
-  "sk-37fdd8580c7a7f44-77b6ac-621c65d5"
+  "<OMNIROUTE_API_KEY>"
 );
 
 if (result.status === "connected") {
@@ -293,7 +293,7 @@ src/
 ```typescript
 // SettingsPage.tsx
 <input value={omniRouteBaseUrl} />  // http://localhost:20128/v1
-<input value={apiKey} />             // sk-37fdd8580c7a7f44-77b6ac-621c65d5
+<input value={apiKey} />             // <OMNIROUTE_API_KEY>
 <button onClick={handleTestOmniRoute}>Test Connection</button>
 ```
 
@@ -422,14 +422,14 @@ curl -X POST http://localhost:5001/api/rag/chat \
 ✅ **Правильно:**
 ```typescript
 baseUrl: "http://localhost:20128/v1"
-apiKey: "sk-37fdd8580c7a7f44-77b6ac-621c65d5"
+apiKey: "<OMNIROUTE_API_KEY>"
 ```
 
 ❌ **Неправильно:**
 ```typescript
 baseUrl: "http://localhost:20128"           // Забыли /v1
 baseUrl: "https://api.omniroute.io/v1"      // Неверный хост
-apiKey: "sk-37fdd8580c7a7f44-77b6ac-621c65d5 " // Пробел в конце
+apiKey: "<OMNIROUTE_API_KEY> " // Trailing space example
 ```
 
 ---

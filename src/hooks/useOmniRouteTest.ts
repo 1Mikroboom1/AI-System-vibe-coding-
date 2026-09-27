@@ -43,7 +43,7 @@ export function useOmniRouteTest() {
       setResult({ status: "testing", message: "Testing connection..." });
 
       try {
-        const response = await fetch("http://localhost:5000/api/providers/test", {
+        const response = await fetch("/api/providers/test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(request)
